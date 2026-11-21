@@ -1,0 +1,330 @@
+"""Safe, dependency-free project installer for native Codex agents and skills."""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import sys
+import tempfile
+import tomllib
+
+from .registry import AGENTS, AGENTS_BLOCK, CONFIG, SKILLS, VERSION, payload
+
+MANIFEST = Path('.forgequorum/manifest.json')
+START = '<!-- forge-quorum:start -->'
+END = '<!-- forge-quorum:end -->'
+
+
+class InstallError(Exception):
+    pass
+
+
+def digest(content: str) -> str:
+    return hashlib.sha256(content.encode('utf-8')).hexdigest()
+
+
+def read_text(path: Path) -> str:
+    # Preserve original line endings in existing project instructions.
+    return path.read_bytes().decode('utf-8')
+
+
+def assert_safe_path(root: Path, rel: Path) -> Path:
+    if rel.is_absolute() or '..' in rel.parts or rel == Path('.'):
+        raise InstallError(f'Unsafe managed path: {rel}')
+    current = root
+    if current.is_symlink():
+        raise InstallError(f'Refusing symlink root: {root}')
+    for part in rel.parts:
+        current = current / part
+        if current.is_symlink():
+            raise InstallError(f'Refusing symlink in managed path: {current}')
+    return current
+
+
+def atomic_write(file: Path, content: str) -> None:
+    file.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp = tempfile.mkstemp(prefix='.forgequorum-', dir=file.parent, text=True)
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8', newline='\n') as out:
+            out.write(content)
+        os.replace(temp, file)
+    finally:
+        if os.path.exists(temp):
+            os.unlink(temp)
+
+
+def load_manifest(root: Path) -> dict | None:
+    path = assert_safe_path(root, MANIFEST)
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(read_text(path))
+    except (ValueError, OSError) as e:
+        raise InstallError(f'Invalid manifest: {e}') from e
+    if not isinstance(data, dict) or not isinstance(data.get('managed_files'), dict):
+        raise InstallError('Invalid manifest schema; refusing to overwrite')
+    for rel, sha in data['managed_files'].items():
+        if not isinstance(rel, str) or not isinstance(sha, str) or len(sha) != 64:
+            raise InstallError('Invalid manifest entry')
+        assert_safe_path(root, Path(rel))
+    return data
+
+
+def plan_install(root: Path) -> tuple[dict[Path, str], list[str], dict]:
+    """Preflight every managed write; never overwrite unowned or edited files."""
+    previous = load_manifest(root)
+    owned = previous['managed_files'] if previous else {}
+    additions: dict[str, str] = payload()
+    config = Path('.codex/config.toml')
+    if (root / config).exists() and not (root / config).is_file():
+        raise InstallError('Config path exists but is not a file')
+    if (root / config).exists() and str(config) not in owned:
+        additions['.forgequorum/config.example.toml'] = CONFIG
+    else:
+        additions[str(config)] = CONFIG
+    modifications: dict[Path, str] = {}
+    tracked: dict[str, str] = {}
+    skipped: list[str] = []
+    for name, content in additions.items():
+        rel = Path(name)
+        target = assert_safe_path(root, rel)
+        if target.exists():
+            if not target.is_file():
+                raise InstallError(f'Not a regular file: {target}')
+            current = read_text(target)
+            if name in owned and digest(current) != owned[name]:
+                raise InstallError(f'Previously managed file was edited: {name}; make a backup and resolve manually')
+            if name not in owned:
+                if current == content:
+                    skipped.append(f'Existing identical file retained (unmanaged): {name}')
+                    continue
+                raise InstallError(f'File already exists (unmanaged): {name}; will not overwrite')
+            if current != content:
+                modifications[rel] = content
+        else:
+            modifications[rel] = content
+        tracked[name] = digest(content)
+
+    # Retain previously managed files even when new versions do not include them.
+    # This makes upgrade behavior non-destructive; doctor can flag stale files.
+    for name, sha in owned.items():
+        if name not in tracked:
+            tracked[name] = sha
+
+    agents_rel = Path('AGENTS.md')
+    agents_path = assert_safe_path(root, agents_rel)
+    if agents_path.exists() and not agents_path.is_file():
+        raise InstallError('AGENTS.md is not a regular file')
+    was_preexisting = bool(previous.get('agents_md_preexisting')) if previous else agents_path.exists()
+    existing = read_text(agents_path) if agents_path.exists() else ''
+    separator = previous.get('agents_md_separator', '') if previous else ''
+    if START in existing or END in existing:
+        if previous is None:
+            raise InstallError('An existing managed AGENTS.md block has no manifest; refusing to adopt it')
+        if existing.count(START) != 1 or existing.count(END) != 1:
+            raise InstallError('AGENTS.md contains invalid or duplicate managed markers')
+        start = existing.index(START)
+        end = existing.index(END) + len(END)
+        if existing[start:end] != AGENTS_BLOCK:
+            raise InstallError('AGENTS.md managed section was edited; refusing to overwrite')
+    else:
+        separator = ('\n' if existing and not existing.endswith('\n') else '') + ('\n' if existing else '')
+        modifications[agents_rel] = existing + separator + AGENTS_BLOCK + '\n'
+
+    new_manifest = {
+        'format': 1,
+        'version': VERSION,
+        'agents_md_preexisting': was_preexisting,
+        'agents_md_separator': separator,
+        'managed_files': dict(sorted(tracked.items())),
+    }
+    manifest_content = json.dumps(new_manifest, ensure_ascii=False, indent=2) + '\n'
+    if previous is None or read_text(root / MANIFEST) != manifest_content:
+        modifications[MANIFEST] = manifest_content
+    return modifications, skipped, new_manifest
+
+
+def install(root: Path, dry_run: bool = False) -> tuple[int, list[str]]:
+    if not root.is_dir():
+        raise InstallError(f'Target must be an existing directory: {root}')
+    changes, skipped, _ = plan_install(root)
+    if dry_run:
+        return len(changes), [f'WOULD WRITE {p.as_posix()}' for p in changes] + skipped
+    # Every touched path has been preflighted. In an I/O failure we restore
+    # prior content to avoid an incomplete installation.
+    snapshots = {rel: read_text(root / rel) if (root / rel).exists() else None for rel in changes}
+    written: list[Path] = []
+    try:
+        for rel, content in changes.items():
+            atomic_write(root / rel, content)
+            written.append(rel)
+    except OSError as e:
+        for rel in reversed(written):
+            try:
+                if snapshots[rel] is None:
+                    (root / rel).unlink(missing_ok=True)
+                else:
+                    atomic_write(root / rel, snapshots[rel])
+            except OSError:
+                pass
+        raise InstallError(f'Write failed (rollback attempted): {e}') from e
+    return len(changes), [f'INSTALLED {p.as_posix()}' for p in changes] + skipped
+
+
+def check(root: Path) -> tuple[list[str], list[str]]:
+    errors: list[str] = []
+    warnings: list[str] = []
+    old = load_manifest(root)
+    if not old:
+        errors.append('Not installed: run forgequorum init --target <directory>')
+        return errors, warnings
+    for name, expected in old['managed_files'].items():
+        path = assert_safe_path(root, Path(name))
+        if not path.exists():
+            errors.append(f'Missing: {name}')
+            continue
+        if digest(read_text(path)) != expected:
+            errors.append(f'Modified: {name}')
+        if name.endswith('.toml'):
+            try:
+                parsed = tomllib.loads(read_text(path))
+                if '/agents/' in name and not all(isinstance(parsed.get(k), str) and parsed[k] for k in ('name', 'description', 'developer_instructions')):
+                    errors.append(f'Invalid agent metadata: {name}')
+            except tomllib.TOMLDecodeError as e:
+                errors.append(f'Invalid TOML in {name}: {e}')
+        if name.endswith('SKILL.md'):
+            content = read_text(path)
+            if not content.startswith('---\n') or '\nname: ' not in content or '\ndescription: ' not in content:
+                errors.append(f'Invalid skill frontmatter: {name}')
+    agents = assert_safe_path(root, Path('AGENTS.md'))
+    if not agents.exists() or read_text(agents).count(AGENTS_BLOCK) != 1:
+        errors.append('AGENTS.md managed block missing or modified')
+    config = root / '.codex/config.toml'
+    if config.exists():
+        try:
+            tomllib.loads(read_text(config))
+        except tomllib.TOMLDecodeError as e:
+            errors.append(f'Invalid project Codex config: {e}')
+    else:
+        warnings.append('No project .codex/config.toml; merge .forgequorum/config.example.toml if desired')
+    if not shutil.which('codex'):
+        warnings.append('Codex CLI was not found on PATH; generated assets can still be validated')
+    return errors, warnings
+
+
+def uninstall(root: Path, dry_run: bool = False) -> tuple[int, list[str]]:
+    old = load_manifest(root)
+    if old is None:
+        return 0, ['Nothing to uninstall']
+    conflicts: list[str] = []
+    removable: list[Path] = []
+    for name, expected in old['managed_files'].items():
+        rel = Path(name)
+        path = assert_safe_path(root, rel)
+        if path.exists() and digest(read_text(path)) != expected:
+            conflicts.append(name)
+        else:
+            removable.append(rel)
+    agents_rel = Path('AGENTS.md')
+    agents_file = assert_safe_path(root, agents_rel)
+    existing = read_text(agents_file) if agents_file.exists() else ''
+    block_present = existing.count(AGENTS_BLOCK) == 1
+    if not block_present:
+        conflicts.append('AGENTS.md managed block')
+    output = [f'WOULD REMOVE {p.as_posix()}' if dry_run else f'REMOVED {p.as_posix()}' for p in removable]
+    if conflicts:
+        output.extend(f'KEEP (modified): {x}' for x in conflicts)
+    if dry_run:
+        if block_present:
+            output.append('WOULD REMOVE managed AGENTS.md block')
+        return len(removable), output
+    for rel in removable:
+        (root / rel).unlink(missing_ok=True)
+        parent = (root / rel).parent
+        while parent != root and parent != (root / '.forgequorum'):
+            try:
+                parent.rmdir()
+            except OSError:
+                break
+            parent = parent.parent
+    if block_present:
+        # The injected block is always surrounded by the same exact suffix.
+        prefix, suffix = existing.split(AGENTS_BLOCK, 1)
+        separator = old.get('agents_md_separator', '')
+        if separator and prefix.endswith(separator):
+            prefix = prefix[:-len(separator)]
+        if suffix.startswith('\n'):
+            suffix = suffix[1:]
+        remaining = prefix + suffix
+        if not remaining and not old.get('agents_md_preexisting', False):
+            agents_file.unlink(missing_ok=True)
+        else:
+            atomic_write(agents_file, remaining)
+        output.append('REMOVED managed AGENTS.md block')
+    remaining_files = {n: old['managed_files'][n] for n in conflicts if n in old['managed_files']}
+    if remaining_files or not block_present:
+        old['managed_files'] = remaining_files
+        atomic_write(root / MANIFEST, json.dumps(old, ensure_ascii=False, indent=2) + '\n')
+    else:
+        (root / MANIFEST).unlink(missing_ok=True)
+        try:
+            (root / '.forgequorum').rmdir()
+        except OSError:
+            pass
+    return len(removable), output
+
+
+def parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog='forgequorum', description='ForgeQuorum: native Codex agent/skill pack')
+    p.add_argument('--version', action='version', version=VERSION)
+    sub = p.add_subparsers(dest='command', required=True)
+    for command in ('init', 'doctor', 'uninstall'):
+        cmd = sub.add_parser(command)
+        cmd.add_argument('--target', type=Path, default=Path('.'), help='Existing project folder (default: current directory)')
+        if command in ('init', 'uninstall'):
+            cmd.add_argument('--dry-run', action='store_true')
+    sub.add_parser('list', help='List bundled agents and workflow skills')
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    if args.command == 'list':
+        print(f'{len(AGENTS)} specialized agents:')
+        for agent in AGENTS:
+            print(f'  {agent.name:23} {agent.description}')
+        print(f'\n{len(SKILLS)} workflow skills:')
+        for skill in SKILLS:
+            print(f'  {skill.name:23} {skill.description}')
+        return 0
+    root: Path = args.target.absolute()
+    try:
+        if args.command == 'init':
+            count, lines = install(root, args.dry_run)
+            for line in lines:
+                print(line)
+            print(f'\n{count} file(s) {"would change" if args.dry_run else "changed"}.')
+            if not args.dry_run:
+                print('Run: forgequorum doctor --target ' + str(root))
+            return 0
+        if args.command == 'doctor':
+            errors, warnings = check(root)
+            for msg in errors:
+                print('ERROR: ' + msg)
+            for msg in warnings:
+                print('WARN: ' + msg)
+            print(f'Result: {len(errors)} error(s), {len(warnings)} warning(s)')
+            return 1 if errors else 0
+        if args.command == 'uninstall':
+            count, lines = uninstall(root, args.dry_run)
+            for line in lines:
+                print(line)
+            print(f'{count} managed file(s) {"would be removed" if args.dry_run else "removed"}.')
+            return 2 if any('KEEP (modified)' in x for x in lines) else 0
+    except (InstallError, OSError, UnicodeError) as error:
+        print(f'ERROR: {error}', file=sys.stderr)
+        return 1
+    return 2

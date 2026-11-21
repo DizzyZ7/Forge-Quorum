@@ -4,6 +4,9 @@
 
 ### One prompt. An entire engineering team.
 
+[![Tests](https://github.com/DizzyZ7/Forge-Quorum/actions/workflows/tests.yml/badge.svg)](https://github.com/DizzyZ7/Forge-Quorum/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 **20 specialized agents · 14 reusable skills · Safe installer · Zero runtime dependencies**
 
 Native Codex configuration for engineering teams: architecture, Python backend, frontend, security, PostgreSQL, debugging, QA, DevOps, integrations and release engineering.
@@ -24,6 +27,18 @@ ForgeQuorum — независимый open-source проект для Codex, н
 
 ## Быстрый старт
 
+**Установка одной командой прямо с GitHub:**
+
+```bash
+python -m pip install "git+https://github.com/DizzyZ7/Forge-Quorum.git"
+forgequorum init --target /path/to/your-project
+forgequorum doctor --target /path/to/your-project
+```
+
+Для Windows используйте `py -m pip install "git+https://github.com/DizzyZ7/Forge-Quorum.git"`; вместо `/path/to/your-project` укажите существующий путь к проекту. Короткий алиас CLI: `fq`.
+
+**Разработка из исходников:**
+
 Требования: **Python 3.11+**, локальная копия данного проекта и рабочий **Codex** (CLI, IDE или поддерживаемый клиент).
 
 ```bash
@@ -31,13 +46,13 @@ ForgeQuorum — независимый open-source проект для Codex, н
 python -m pip install -e .
 
 # Посмотреть изменения БЕЗ записи
- forgequorum init --target ../my-project --dry-run
+forgequorum init --target ../my-project --dry-run
 
 # Добавить агентов и навыки в существующий проект
  forgequorum init --target ../my-project
 
 # Проверить целостность
- forgequorum doctor --target ../my-project
+forgequorum doctor --target ../my-project
 ```
 
 Для Windows PowerShell:
@@ -181,7 +196,7 @@ python -m pip install -e .
 python -m unittest discover -s tests -v
 ```
 
-CI настроен для Ubuntu и Windows, Python 3.11 и 3.13. Наличие workflow не означает, что удаленный CI уже запущен: это произойдет после публикации репозитория на GitHub.
+CI настроен для Ubuntu и Windows, Python 3.11 и 3.13. Статус удаленного CI доступен в [GitHub Actions](https://github.com/DizzyZ7/Forge-Quorum/actions).
 
 ## Планы
 
@@ -192,5 +207,7 @@ CI настроен для Ubuntu и Windows, Python 3.11 и 3.13. Наличи�
 - [Codex: customization, skills, AGENTS.md](https://learn.chatgpt.com/docs/customization/overview)
 - [Codex: custom subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents)
 - [Codex: configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
+
+Если проект оказался полезным, поддержите разработку ⭐ [звездой на GitHub](https://github.com/DizzyZ7/Forge-Quorum). Вопросы, баги и предложения — через Issues.
 
 Лицензия: [MIT](LICENSE). © 2026 Dimash Janibekov.

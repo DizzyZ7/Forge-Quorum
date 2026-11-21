@@ -1,4 +1,4 @@
-# Isolated Codex jobs (v0.5.0 preview)
+# Isolated Codex jobs and bounded batches (v0.6.0)
 
 ForgeQuorum offers **opt-in local execution**, not an autonomous multi-model server. It coordinates one `codex exec` invocation per prepared worktree and suggests Codex-native subagents when those have been configured. Real delegated agent count depends on your Codex client.
 
@@ -19,6 +19,20 @@ The `start` command creates `forgequorum/<id>` from **committed HEAD** in a sepa
 
 `run` without `--execute` is read-only. With `--execute`, it invokes the installed Codex CLI from the worktree with `codex exec --json --sandbox workspace-write`. This may use tokens and edit code. Codex authentication, network use, approvals and sandbox enforcement are outside the Python CLI's control. ForgeQuorum does not save JSONL transcripts, credentials or model messages. Its run metadata includes **the task text you supplied**, so do not put secrets in task descriptions.
 
+## Bounded batch execution
+
+Create a dedicated job for each independent task and confirm the worktrees do not share implementation file ownership.
+
+```bash
+fq swarm batch <job-a> <job-b> --target . --max-parallel 2
+fq swarm batch <job-a> <job-b> --target . --max-parallel 2 --execute
+fq swarm review <job-a> --target . --json
+```
+
+Without `--execute`, the batch only validates jobs and returns a preview. On execution it checks up to 12 distinct prepared IDs, then runs at most 4 concurrent Codex processes per CLI invocation. A lock claims each job to guard against duplicate starts. Workers retain their own failure records and worktrees for review. The read-only `swarm review` summarizes Git status and tracked diffs but cannot certify correctness. **No automatic merge, push or deploy.**
+
+There is no global process cap, no money/token budgeting, cancellation API or safe automatic recovery for abandoned locks. On a crash, inspect any leftover `running` metadata, lock file and active processes before manual intervention. Process timeouts cannot guarantee cleanup of child processes on every platform.
+
 ## Review and transfer
 
 ```bash
@@ -33,10 +47,10 @@ fq swarm cleanup <job-id> --target . --confirm # clean worktrees only
 
 ## Limits
 
-- One Codex process per job; multiple jobs can be started independently but are not auto-scheduled in parallel.
+- One Codex process per job; an explicit batch may launch distinct jobs in parallel, with a per-batch limit but no global scheduler.
 - Source/code review, tests and merges are not automatic proof of correctness. Check actual outputs and Git status.
 - Codex subagent invocation is advisory and client-dependent, not guaranteed.
 - `--timeout` limits waiting for the direct Codex process; child process behavior depends on the operating system and Codex runtime.
-- A crashed process may leave a `running` record requiring manual inspection. No automatic force-recovery is attempted.
+- A crashed process may leave a `running` record and exclusive lock requiring manual inspection. No automatic force-recovery is attempted.
 - Worktrees start from committed HEAD: local uncommitted changes are not included.
 - If a test process modifies external systems, worktree isolation does not stop those effects.

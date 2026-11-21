@@ -14,8 +14,8 @@ This document describes **ForgeQuorum itself**. Features marked as planned are n
 | Local context | `fq context` summarizes stack metadata; `fq checkpoint` writes opt-in notes | No automatic transcript capture or cross-session learning |
 | Hooks | Optional example for an advisory Codex session-start hook | Requires explicit configuration and trust; not part of plugin distribution |
 | Quality | Unit tests, portable exports checked in CI, routing fixtures | No real multi-language end-to-end Codex task matrix yet |
-| Isolated Codex jobs | `fq swarm` plans, creates dedicated Git worktrees, optionally invokes `codex exec` and preserves reviewable Git branches | One process per job; Codex-native subagent delegation is advisory. No automatic parallel scheduler, merges, token accounting or production deploys |
-| Cost controls | Guidance to keep teams small | No live usage/cost telemetry |
+| Isolated Codex jobs | `fq swarm` plans, creates dedicated Git worktrees, optionally invokes `codex exec` and preserves reviewable Git branches | Optional batches of prepared jobs (up to 4 workers per batch); no global concurrency limit, automatic merges, token accounting or production deploys |
+| Cost controls | Explicit `--execute`, per-job timeout and per-batch worker cap | No global token/cost accounting, spending limit or guaranteed cleanup of child processes |
 | Deployment | Review-first release and rollout guidance | No unattended deploys, cloud mutations or destructive production commands |
 
 ## Installation and verification

@@ -1,3 +1,19 @@
+# Changelog
+
+## 0.6.0 — Bounded concurrent Codex jobs and review reports
+
+- Added `fq swarm batch <id>... [--execute] --max-parallel 1..4` for up to 12 already prepared worktree jobs, with all-job preflight.
+- Added atomic per-job run locks and branch validation; stale locks require human inspection.
+- Added `fq swarm review <id>` for read-only tracked diff statistics and Git status.
+- Per-job execution duration and failure outcomes are recorded without raw model transcripts.
+- No automatic merges/deploys, cancellation API, global resource caps or live cost accounting.
+
+## 0.5.0 — Isolated Codex jobs
+
+- Added `fq swarm plan/start/run/status/list/cleanup` and isolated Git worktrees.
+- Launching Codex requires explicit `--execute`; cleanup requires `--confirm` and a clean worktree.
+- Independent agent delegation remains client-dependent.
+
 ## 0.4.0 — Native Codex plugin and evidence-first workflows
 
 - Portable Agent Plugins `plugin.json`, local Git-backed repository marketplace, 39 exported skills with reproducible sync checks and selected Codex UI metadata.
@@ -7,7 +23,6 @@
 - CI verifies committed plugin skills are in sync and validates read-only gate planning.
 - No automatic deployment, network dependency install, secret collection, token-cost tracking or arbitrary parallel agent runtime included.
 
-# Changelog
 
 ## 0.3.0 — Polyglot expansion
 

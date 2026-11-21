@@ -7,6 +7,9 @@ from __future__ import annotations
 
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
+from time import monotonic
 from pathlib import Path
 import re
 import shutil
@@ -22,6 +25,8 @@ from .profiles import profile_names
 ID = re.compile(r"^[0-9a-f]{12}$")
 MAX_TASK = 4000
 JOB_FORMAT = 1
+MAX_BATCH = 12
+MAX_PARALLEL = 4
 
 
 class SwarmError(ValueError):
@@ -110,6 +115,129 @@ def _load_job(root: Path, common: Path, job_id: str) -> dict:
         raise SwarmError("Unexpected managed branch")
     return data
 
+
+
+@contextmanager
+def _exclusive_run(common: Path, job_id: str):
+    """Cross-process exclusive job claim; never break abandoned locks automatically."""
+    if not ID.fullmatch(job_id):
+        raise SwarmError("Invalid job ID")
+    directory = _job_dir(common)
+    directory.mkdir(parents=True, exist_ok=True)
+    lock = directory / f"{job_id}.lock"
+    if lock.is_symlink():
+        raise SwarmError("Refusing symlinked run lock")
+    try:
+        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError as error:
+        raise SwarmError(
+            "Job is already claimed or has an abandoned run lock; "
+            "inspect running processes before manual recovery"
+        ) from error
+    token = uuid4().hex
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump({"job_id": job_id, "pid": os.getpid(), "started_at": _now(),
+                       "token": token}, handle)
+        yield
+    finally:
+        # Do not delete a lock replaced by another process.
+        try:
+            if not lock.is_symlink() and json.loads(lock.read_text(encoding="utf-8")).get("token") == token:
+                lock.unlink()
+        except (OSError, ValueError, AttributeError):
+            pass
+
+
+def _check_runnable(root: Path, common: Path, job_id: str) -> dict:
+    job = _load_job(root, common, job_id)
+    workspace = Path(job["workspace"])
+    if not _registered_workspace(root, workspace) or workspace.is_symlink() or not workspace.is_dir():
+        raise SwarmError("Worktree is missing or no longer managed by Git")
+    if _git(workspace, "branch", "--show-current") != job["branch"]:
+        raise SwarmError("Worktree branch no longer matches the recorded job")
+    if job["state"] not in ("prepared", "failed", "timed_out"):
+        raise SwarmError("Job is not runnable; completed and running jobs cannot be rerun automatically")
+    return job
+
+
+def run_batch(target: Path, job_ids: list[str], timeout: int = 900,
+              max_parallel: int = 2, execute: bool = False) -> dict:
+    """Run *independent prepared jobs* with bounded per-invocation concurrency.
+
+    Does not enforce a global token or process budget across different CLI runs.
+    """
+    if not 30 <= timeout <= 3600:
+        raise SwarmError("timeout must be between 30 and 3600 seconds")
+    if not 1 <= max_parallel <= MAX_PARALLEL:
+        raise SwarmError(f"max_parallel must be between 1 and {MAX_PARALLEL}")
+    if not job_ids or len(job_ids) > MAX_BATCH or len(set(job_ids)) != len(job_ids):
+        raise SwarmError(f"Specify 1 to {MAX_BATCH} unique job IDs")
+    root, common = _repo(target)
+    # Validate all jobs before a single model call is permitted.
+    for job_id in job_ids:
+        if not ID.fullmatch(job_id):
+            raise SwarmError(f"Invalid job ID: {job_id}")
+        _check_runnable(root, common, job_id)
+        if (_job_dir(common) / f"{job_id}.lock").exists():
+            raise SwarmError(f"Job is already claimed: {job_id}")
+
+    if not execute:
+        return {
+            "state": "dry-run", "job_ids": job_ids, "max_parallel": max_parallel,
+            "timeout_seconds_per_job": timeout, "execution_authorized": False,
+            "notice": "Pass --execute to invoke Codex once for each job. No token or monetary quota is enforced.",
+        }
+
+    def _one(job_id: str) -> dict:
+        try:
+            outcome = execute_job(root, job_id, timeout=timeout, execute=True)
+            return {"id": job_id, "state": outcome["state"],
+                    "last_execution": outcome.get("last_execution")}
+        except (SwarmError, OSError, ValueError) as exc:
+            return {"id": job_id, "state": "error", "error": str(exc)}
+        except Exception as exc:
+            # A failing worker must not make the batch lose other job results;
+            # do not print potentially sensitive exception arguments.
+            return {"id": job_id, "state": "error", "error": f"Worker failed: {type(exc).__name__}"}
+
+    results = {}
+    with ThreadPoolExecutor(max_workers=min(max_parallel, len(job_ids)),
+                            thread_name_prefix="forgequorum") as pool:
+        futures = {pool.submit(_one, job_id): job_id for job_id in job_ids}
+        for future in as_completed(futures):
+            results[futures[future]] = future.result()
+    ordered = [results[job_id] for job_id in job_ids]
+    return {
+        "state": "completed" if all(item["state"] == "completed" for item in ordered) else "partial-failure",
+        "execution_authorized": True,
+        "max_parallel": max_parallel, "jobs": ordered,
+        "completed": sum(x["state"] == "completed" for x in ordered),
+        "total": len(ordered),
+        "notice": "Review every worktree manually; no results have been merged or deployed.",
+    }
+
+
+def review_job(target: Path, job_id: str) -> dict:
+    """Read-only evidence summary from Git, not a claim of passing tests."""
+    job = inspect_job(target, job_id)
+    if not job["registered"] or job["head_sha"] is None:
+        raise SwarmError("Cannot review a missing or detached worktree")
+    workspace = Path(job["workspace"])
+    root, common = _repo(target)
+    if _git(workspace, "branch", "--show-current") != job["branch"]:
+        raise SwarmError("Unexpected branch; review manually")
+    raw = _git(workspace, "diff", "--stat", job["base_sha"], "--")
+    return {
+        "id": job_id, "branch": job["branch"], "workspace": str(workspace),
+        "state": job["state"], "base_sha": job["base_sha"],
+        "head_sha": job["head_sha"], "files": job["changes"],
+        "modified_entries": len(job["changes"]),
+        "tracked_diff_summary": raw[:16000],
+        "last_execution": job.get("last_execution"),
+        "verification": "unverified",
+        "notice": "Includes tracked diff summary and untracked status; does not run tests, inspect every file, or merge changes.",
+    }
 
 def plan(root: Path, task: str, profile: str = "auto", max_agents: int = 3) -> dict:
     if not isinstance(task, str) or not task.strip() or len(task) > MAX_TASK:
@@ -253,29 +381,34 @@ def execute_job(target: Path, job_id: str, timeout: int = 900, execute: bool = F
     if not 30 <= timeout <= 3600:
         raise SwarmError("timeout must be between 30 and 3600 seconds")
     root, common = _repo(target)
-    job = _load_job(root, common, job_id)
+    job = _check_runnable(root, common, job_id)
     workspace = Path(job["workspace"])
-    if not _registered_workspace(root, workspace) or workspace.is_symlink() or not workspace.is_dir():
-        raise SwarmError("Worktree is missing or no longer managed by Git")
-    if job["state"] not in ("prepared", "failed", "timed_out"):
-        raise SwarmError("Job is not runnable; completed and running jobs cannot be rerun automatically")
     if not execute:
         return {"id": job_id, "state": "dry-run", "argv": ["codex", "exec", "--json", "--sandbox", "workspace-write", "<generated task prompt>"],
                 "workspace": str(workspace), "notice": "Pass --execute to authorize a real Codex invocation, which may consume tokens and edit this worktree."}
-    if not shutil.which("codex"):
-        raise SwarmError("Codex CLI is missing from PATH. Install and authenticate it first.")
-    job["state"] = "running"
-    _write_job(common, job)
-    try:
-        status, code, events = _codex_exec(workspace, _prompt(job), timeout)
-        job["state"] = status
-        job["last_execution"] = {"at": _now(), "exit_code": code, "events_seen": events, "timeout_seconds": timeout}
-    except Exception:
-        job["state"] = "failed"
-        job["last_execution"] = {"at": _now(), "exit_code": None, "events_seen": 0, "error": "Codex launch error"}
+    with _exclusive_run(common, job_id):
+        # Revalidate after claiming the lock: another process may have finished
+        # the job between the first inspection and exclusive acquisition.
+        job = _check_runnable(root, common, job_id)
+        if not shutil.which("codex"):
+            raise SwarmError("Codex CLI is missing from PATH. Install and authenticate it first.")
+        job["state"] = "running"
         _write_job(common, job)
-        raise
-    _write_job(common, job)
+        started = monotonic()
+        try:
+            status, code, events = _codex_exec(workspace, _prompt(job), timeout)
+            job["state"] = status
+            job["last_execution"] = {"at": _now(), "exit_code": code, "events_seen": events,
+                                     "timeout_seconds": timeout,
+                                     "elapsed_seconds": round(monotonic() - started, 3)}
+        except Exception:
+            job["state"] = "failed"
+            job["last_execution"] = {"at": _now(), "exit_code": None, "events_seen": 0,
+                                     "elapsed_seconds": round(monotonic() - started, 3),
+                                     "error": "Codex launch error"}
+            _write_job(common, job)
+            raise
+        _write_job(common, job)
     return inspect_job(root, job_id)
 
 

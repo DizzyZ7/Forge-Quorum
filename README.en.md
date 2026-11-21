@@ -33,6 +33,20 @@ Avoid installing the same skill through both methods. Hooks are opt-in and are n
 
 [Русская документация](README.md) · [Language support](docs/LANGUAGE-SUPPORT.md) · [Architecture](docs/ARCHITECTURE.md) · [Roadmap](ROADMAP.md)
 
+## Isolated worktrees and concurrent execution (v0.6.0)
+
+ForgeQuorum prepares **independent Git worktrees** for coding tasks and offers explicit, capped parallel Codex execution. Preview operations do not call any model.
+
+```bash
+fq swarm start "Implement a Go API" --target . --json
+fq swarm start "Write frontend tests" --target . --json
+fq swarm batch <job-a> <job-b> --target . --max-parallel 2
+fq swarm batch <job-a> <job-b> --target . --max-parallel 2 --execute
+fq swarm review <job-a> --target . --json
+```
+
+Up to 12 prepared job IDs and 4 concurrent `codex exec` processes are supported **per batch**, not globally. A job-level lock prevents duplicate execution. No automatic merges, pushes, deployments, token metering or spending limits are provided. Model execution must be explicitly authorized and may consume tokens. See [orchestration details](docs/ORCHESTRATION.md).
+
 ## Quick start
 
 Python **3.11+ is only required to run the installer**; your target project may use any language.

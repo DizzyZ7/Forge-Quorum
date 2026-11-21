@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.0 — Verified dependency gates and explicit patch handoff
+
+- Added optional `fq queue add --gate verified|transferred` admission policies. The backward-compatible default remains `order`.
+- Strict dependencies require successful and still-fresh test evidence for each completed, clean parent commit. Changed, dirty or unverified parents block downstream admission.
+- Added `fq queue transfer CHILD --from PARENT` to preflight committed Git patches, and `--apply` to stage accepted changes only in the dependent worktree. No merge, automatic commit, reset, push or deployment.
+- Added conflict, stale-index, path, symlink, submodule, patch-size and provenance safety checks, including multi-dependency handoffs with non-overlapping paths.
+- Added regression tests with real temporary Git worktrees, binary patches, legacy v0.9 queue records and CLI dry-runs. This does **not** imply live Codex model integration was tested.
+
 ## 0.9.0 — Repository priority queue and dependency ordering
 
 - Introduced repository-scoped `fq queue add/status/run/priority/retry/cancel/recover/watch` with persistent metadata and atomic selection across independent CLI invocations.

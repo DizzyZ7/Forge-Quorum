@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import json
+import re
 import os
 from pathlib import Path
 import shutil
@@ -26,6 +27,7 @@ MAX_BATCH = 12
 MAX_PARALLEL = 4
 MAX_PRIORITY = 100
 STATES = {'queued', 'claimed', 'completed', 'failed', 'cancelled'}
+GATES = {'order', 'verified', 'transferred'}
 
 
 def _now() -> str:
@@ -51,10 +53,35 @@ def _validate(data: object) -> dict:
                 or item.get('id') != key or not isinstance(item.get('state'), str) or item['state'] not in STATES
                 or type(item.get('priority')) is not int or not -MAX_PRIORITY <= item['priority'] <= MAX_PRIORITY
                 or type(item.get('sequence')) is not int or item['sequence'] < 0
+                or not isinstance(item.get('gate', 'order'), str)
+                or item.get('gate', 'order') not in GATES
                 or not isinstance(item.get('after'), list)
                 or len(item['after']) > MAX_BATCH or len(set(map(str, item['after']))) != len(item['after'])
                 or any(not isinstance(x, str) or ID.fullmatch(x) is None or x == key for x in item['after'])):
             raise SwarmError('Invalid queue entry; refusing execution')
+        handoffs = item.get('handoffs', {})
+        if not isinstance(handoffs, dict) or len(handoffs) > MAX_BATCH or any(key not in item['after'] for key in handoffs):
+            raise SwarmError('Invalid dependency transfer provenance')
+        seen_sequences = set()
+        for key, record in handoffs.items():
+            if (not isinstance(record, dict)
+                    or type(record.get('sequence')) is not int
+                    or not 1 <= record['sequence'] <= MAX_BATCH
+                    or record['sequence'] in seen_sequences
+                    or any(not isinstance(record.get(field), str)
+                           or re.fullmatch(r'[0-9a-f]{40,64}', record[field]) is None
+                           for field in ('source_sha', 'destination_sha'))
+                    or any(not isinstance(record.get(field), str)
+                           or re.fullmatch(r'[0-9a-f]{64}', record[field]) is None
+                           for field in ('patch_sha256', 'index_sha256'))
+                    or not isinstance(record.get('paths'), list)
+                    or len(record['paths']) > 1000
+                    or any(not isinstance(name, str) or not name or '\0' in name
+                           or name.startswith('/') or '..' in name.split('/')
+                           for name in record['paths'])
+                    or len(set(record['paths'])) != len(record['paths'])):
+                raise SwarmError('Invalid dependency transfer record')
+            seen_sequences.add(record['sequence'])
         if item['state'] == 'claimed':
             claim = item.get('claim')
             if (not isinstance(claim, dict) or type(claim.get('pid')) is not int
@@ -130,22 +157,29 @@ def _order(items: list[dict]) -> list[dict]:
     return sorted(items, key=lambda x: (-x['priority'], x['sequence'], x['id']))
 
 
-def _reason(item: dict, entries: dict) -> str:
+def _reason(item: dict, entries: dict, root: Path | None = None, common: Path | None = None) -> str:
     if item['state'] != 'queued':
         return item['state']
     if any(entries[dep]['state'] in ('failed', 'cancelled') for dep in item['after']):
         return 'dependency-failed'
     if any(entries[dep]['state'] != 'completed' for dep in item['after']):
         return 'waiting-for-dependencies'
+    if item.get('gate', 'order') != 'order':
+        if root is None or common is None:
+            return 'dependency-unverified'
+        from .transfer import dependency_readiness
+        return dependency_readiness(root, common, item, entries)
     return 'ready'
 
 
 def enqueue(target: Path, task: str, priority: int = 0, after: list[str] | None = None,
-            profile: str = 'auto', max_agents: int = 3) -> dict:
+            profile: str = 'auto', max_agents: int = 3, gate: str = 'order') -> dict:
     """Create a reviewable worktree and enqueue it; never invoke Codex."""
     if type(priority) is not int or not -MAX_PRIORITY <= priority <= MAX_PRIORITY:
         raise SwarmError('priority must be between -100 and 100')
     after = after or []
+    if not isinstance(gate, str) or gate not in GATES or (gate != 'order' and not after):
+        raise SwarmError('Gate must be order, verified or transferred; strict gates require dependencies')
     if (len(after) > MAX_BATCH or len(set(after)) != len(after)
             or any(not isinstance(x, str) or ID.fullmatch(x) is None for x in after)):
         raise SwarmError('Specify up to 12 unique valid dependency job IDs')
@@ -163,23 +197,24 @@ def enqueue(target: Path, task: str, priority: int = 0, after: list[str] | None 
                 raise SwarmError('Queue changed while preparing the worktree')
             sequence = max((e['sequence'] for e in data['entries'].values()), default=0) + 1
             record = {'id': job['id'], 'priority': priority, 'after': after,
-                      'sequence': sequence, 'state': 'queued', 'created_at': _now(),
+                      'sequence': sequence, 'state': 'queued', 'gate': gate, 'handoffs': {}, 'created_at': _now(),
                       'claim': None, 'last_result': None}
             data['entries'][job['id']] = record
             _write(folder, data)
     except Exception as exc:
         raise SwarmError(f'Worktree {job["id"]} was created but queue registration failed; inspect it manually') from exc
-    return {'id': job['id'], 'state': 'queued', 'priority': priority, 'after': after,
+    return {'id': job['id'], 'state': 'queued', 'priority': priority, 'after': after, 'gate': gate,
             'workspace': job['workspace'], 'notice': 'Execution order only. Dependencies do not transfer code between worktrees.'}
 
 
 def snapshot(target: Path) -> dict:
-    _, common = _repo(target)
+    root, common = _repo(target)
     with _transaction(common) as (_, data):
         entries = data['entries']
         ordered = _order(list(entries.values()))
-        items = [{'id': x['id'], 'state': x['state'], 'readiness': _reason(x, entries),
-                  'priority': x['priority'], 'after': x['after'], 'sequence': x['sequence'],
+        items = [{'id': x['id'], 'state': x['state'], 'readiness': _reason(x, entries, root, common),
+                  'priority': x['priority'], 'after': x['after'], 'gate': x.get('gate', 'order'),
+                  'transferred_from': sorted(x.get('handoffs', {})), 'sequence': x['sequence'],
                   'created_at': x['created_at'], 'claimed_at': x.get('claimed_at')}
                  for x in ordered]
     return {'total': len(items), 'ready': sum(x['readiness'] == 'ready' for x in items),
@@ -207,7 +242,7 @@ def reprioritize(target: Path, job_id: str, priority: int, confirm: bool = False
 def _claim_next(root: Path, common: Path) -> tuple[str, str] | None:
     with _transaction(common) as (folder, data):
         entries = data['entries']
-        available = _order([x for x in entries.values() if _reason(x, entries) == 'ready'])
+        available = _order([x for x in entries.values() if _reason(x, entries, root, common) == 'ready'])
         if not available:
             return None
         item = available[0]

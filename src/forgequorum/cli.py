@@ -24,6 +24,7 @@ from .swarm_control import recovery, request_cancel, conflicts, verify_job, usag
 from .handoff import handoff
 from .scheduler import status as scheduler_status, configure as scheduler_configure, release as scheduler_release
 from .queue import enqueue, snapshot as queue_snapshot, dispatch as queue_dispatch, reprioritize, requeue, recover as queue_recover, cancel_queued, observe
+from .transfer import transfer as queue_transfer
 
 MANIFEST = Path('.forgequorum/manifest.json')
 START = '<!-- forge-quorum:start -->'
@@ -391,7 +392,7 @@ def parser() -> argparse.ArgumentParser:
     sr.add_argument('--confirm', action='store_true')
     queue = sub.add_parser('queue', help='Priority and dependency-aware repository job queue')
     queue_sub = queue.add_subparsers(dest='queue_command', required=True)
-    for name in ('add', 'status', 'watch', 'run', 'priority', 'retry', 'recover', 'cancel'):
+    for name in ('add', 'status', 'watch', 'run', 'priority', 'retry', 'recover', 'cancel', 'transfer'):
         q = queue_sub.add_parser(name)
         q.add_argument('--target', type=Path, default=Path('.'), help='Git repository root or subdirectory')
         if name == 'add':
@@ -401,6 +402,12 @@ def parser() -> argparse.ArgumentParser:
                            help='Existing queued jobs that must complete before this job starts')
             q.add_argument('--profile', choices=profile_names() + ('auto',), default='auto')
             q.add_argument('--max-agents', type=int, default=3)
+            q.add_argument('--gate', choices=('order', 'verified', 'transferred'), default='order',
+                           help='Dependency policy: order-only (legacy), verified or explicitly transferred')
+        if name == 'transfer':
+            q.add_argument('job_id', help='Destination queued job ID')
+            q.add_argument('--from', dest='source_job', required=True, help='Completed and freshly verified dependency job ID')
+            q.add_argument('--apply', action='store_true', help='Explicitly stage a verified source patch in destination worktree')
         if name in ('priority', 'retry', 'recover', 'cancel'):
             q.add_argument('job_id', help='12-character job ID')
             q.add_argument('--confirm', action='store_true')
@@ -474,7 +481,9 @@ def main(argv: list[str] | None = None) -> int:
         try:
             root = args.target.absolute()
             if args.queue_command == 'add':
-                result = enqueue(root, args.task, args.priority, args.after, args.profile, args.max_agents)
+                result = enqueue(root, args.task, args.priority, args.after, args.profile, args.max_agents, args.gate)
+            elif args.queue_command == 'transfer':
+                result = queue_transfer(root, args.job_id, args.source_job, args.apply)
             elif args.queue_command == 'status':
                 result = queue_snapshot(root)
             elif args.queue_command == 'watch':

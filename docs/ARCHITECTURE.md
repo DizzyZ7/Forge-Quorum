@@ -46,3 +46,17 @@ A trivial task should use zero extra agents. A typical cross-cutting feature sho
 ## Repository priority queue (v0.9.0)
 
 `src/forgequorum/queue.py` stores only ordered job IDs, priority, predecessor IDs, state and minimal owner/claim metadata under the repository's Git common directory. Atomic directory-mutex operations claim one ready job across concurrent CLI processes; the existing global scheduler then gates each `codex exec` invocation. Dependencies are deliberately *execution-only*: branches are not rebased and outputs are not copied between worktrees. `queue watch` polls a bounded local snapshot and never records agent transcripts. Abandoned claims remain blocked until explicit operator recovery.
+
+
+## Explicit dependency patch transfer (v0.10.0)
+
+`queue.py` preserves schema 1 and reads missing `gate` / `handoffs` fields as
+legacy `order` policy. Verified/transfer-gated jobs check parent state and
+fresh verification against the real worktree HEAD **at admission time**.
+`transfer.py` stages source's committed diff from a shared base through `git
+apply --index` only after an explicit `--apply`; the repository-wide queue
+transaction prevents an in-process dispatcher from claiming the child during
+transfer, while the per-job lock prevents parallel ForgeQuorum job runs.
+Recorded SHA-256 values protect against accidental staged-index drift. Git
+worktrees are not a sandbox; adversarial external editors can still race with
+local checks. The main worktree is never written by this feature.

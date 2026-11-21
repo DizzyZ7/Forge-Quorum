@@ -29,7 +29,7 @@ Avoid installing the same skill through both methods. Hooks are opt-in and are n
 
 ---
 
-> **v0.9.0 adds a repository-scoped priority/dependency queue, on top of bounded isolated Codex worktrees and local cross-process admission. It is not an autonomous multi-agent scheduler.** Actual subagent execution is delegated to Codex, subject to client support, sandbox permissions and available tools. Roles are instructions, not separate trained models.
+> **v0.10.0 adds opt-in verified dependency gates and explicit staged patch transfer, alongside a repository-scoped priority/dependency queue, on top of bounded isolated Codex worktrees and local cross-process admission. It is not an autonomous multi-agent scheduler.** Actual subagent execution is delegated to Codex, subject to client support, sandbox permissions and available tools. Roles are instructions, not separate trained models.
 
 [Русская документация](README.md) · [Language support](docs/LANGUAGE-SUPPORT.md) · [Architecture](docs/ARCHITECTURE.md) · [Roadmap](ROADMAP.md)
 
@@ -56,7 +56,7 @@ ownership, run the actual build/tests, report evidence and request approval
 before publishing or deploying anything.
 ```
 
-## Priority queue and dependency ordering (v0.9.0)
+## Priority queue and dependency ordering (v0.10.0)
 
 `queue add` creates a separate worktree and enqueues a job. `queue run` only previews unless you explicitly pass `--execute`. A repository-scoped atomic mutex prevents two CLI processes from claiming the same queued job; the global scheduler still applies its own concurrency and conservative token-reservation policy.
 
@@ -73,7 +73,22 @@ fq queue retry <job-id> --target . --confirm    # after failure
 fq queue recover <job-id> --target . --confirm  # manual abandoned claim recovery
 ```
 
-**Dependencies order execution, not code integration.** Each worktree starts from committed HEAD at enqueue time. A completed Codex invocation is *not* a verified test result or a merged change. Use `swarm verify` and `swarm handoff` for independent review. Queue claims fail closed after a crash; operator inspection is required before recovery. `watch` polls bounded local metadata in the foreground and does not stream model transcripts.
+### Verified dependency policy and patch transfer (v0.10.0)
+
+```bash
+fq queue add "Build API" --profile go --target .
+fq queue add "Wire client" --after <api-id> --gate transferred --target .
+# Execute parent with queue run --execute, review and commit changes in its worktree.
+fq swarm verify <api-id> --target .          # plan tests
+fq swarm verify <api-id> --target . --run    # explicit project test execution
+fq queue transfer <client-id> --from <api-id> --target .            # dry run
+fq queue transfer <client-id> --from <api-id> --target . --apply    # index-only in child
+fq queue status --target .
+```
+
+`--gate verified` requires fresh passing test evidence for all parent commits; `--gate transferred` additionally requires explicit staged patch transfer from each dependency. The original `--gate order` is the backward-compatible default. Source and destination must share a base commit; an uncommitted parent, overlapping paths, symlink/submodule diff, or modified destination is rejected. The command neither merges nor commits to the destination, never touches `main`, and never runs project code itself. Tests under `swarm verify --run` execute untrusted project scripts: review the preview first.
+
+**Dependencies order execution, not code integration by default.** Each worktree starts from committed HEAD at enqueue time. A completed Codex invocation is *not* a verified test result or a merged change. Use `swarm verify` and `swarm handoff` for independent review. Queue claims fail closed after a crash; operator inspection is required before recovery. `watch` polls bounded local metadata in the foreground and does not stream model transcripts.
 
 ## Isolated Codex jobs and bounded batches
 

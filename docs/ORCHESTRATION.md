@@ -1,4 +1,4 @@
-# Isolated Codex jobs, priority queue and review-first operations (v0.9.0)
+# Isolated Codex jobs, priority queue and review-first operations (v0.10.0)
 
 ForgeQuorum offers **opt-in local execution**, not an autonomous multi-model server. It coordinates one `codex exec` invocation per prepared worktree and suggests Codex-native subagents when those have been configured. Real delegated agent count depends on your Codex client.
 
@@ -134,3 +134,55 @@ A dependency is satisfied when a prior queue job's Codex invocation finishes suc
 A failed task blocks its dependents; operator can inspect and explicitly call `fq queue retry JOB --confirm` if its worktree is runnable. `fq queue cancel JOB --confirm` only affects queued (not claimed/running) entries. `fq queue recover JOB --confirm` marks an abandoned claim failed **only if the claiming PID is no longer alive**; operators must also inspect child processes and the global scheduler reservation manually. Claims are never silently reaped. Queue data is in `.git/forgequorum/queue.json` and is not a security boundary against a local attacker with write access.
 
 **Limitations:** no automatic resumption after process crash, no artifact transfer between dependent jobs, no remote host coordination, no hard token or monetary cap, no automatic verification/merge, and no semantic conflict guarantees. `watch` provides state changes, not streaming Codex output.
+
+## Verified dependency handoff (v0.10.0)
+
+The default `--gate order` keeps legacy behavior: only queue completion is required.
+Use `--gate verified` when parents must have current passing test evidence, or
+`--gate transferred` when **all** parent patches must also be staged explicitly in
+the destination worktree before Codex is allowed to start it.
+
+```bash
+fq queue add "Implement API" --target . --profile go
+fq queue add "Consume API" --target . --after <api-job-id> --gate transferred
+fq queue run --target . --execute --max-jobs 1
+# Inspect and COMMIT the parent worktree changes yourself.
+fq swarm verify <api-job-id> --target .
+fq swarm verify <api-job-id> --target . --run
+fq queue transfer <consumer-id> --from <api-job-id> --target .
+fq queue transfer <consumer-id> --from <api-job-id> --target . --apply
+fq queue status --target .
+```
+
+**Conditions for transfer:** source and destination are members of this same
+repository queue; parent and child share exactly the same original Git base;
+parent queue and Codex run are completed; source has a clean committed HEAD
+matching a successful non-empty test-gate record; destination is still prepared
+and contains no unknown staged, unstaged or untracked changes. Repeated source
+transfers and overlapping paths from different parents are rejected. Existing
+ForgeQuorum-staged patches are fingerprinted so that subsequent transfers
+cannot silently overwrite the user's changes. Files under `.git` or
+`.forgequorum`, `.gitmodules`, symlinks and submodule changes require manual
+transfer. A single patch is limited to 4 MiB and 1,000 changed paths.
+
+**What `--apply` does:** runs `git apply --check --index` first and then stages
+the verified patch in the *child* worktree (`git apply --index`). It records
+source/destination HEAD SHA, patch SHA-256 and staged-index digest in private
+queue metadata. It does not copy uncommitted parent edits, create commits,
+update branches, merge into main, push or deploy. A dry run does not write.
+Afterwards, review `git diff --cached` inside the child before running Codex.
+
+**What counts as a gate:** `fq swarm verify --run` executes selected real
+project test commands and records results, Git HEAD and clean/dirty state.
+Failed, missing or empty test plans are not successful. Source edits made
+later (even if committed) invalidate prior evidence. `--gate verified` requires
+passing test evidence but does **not** transfer the code. Model execution still
+requires `queue run --execute` and may use paid tokens. A passing test suite
+is not proof of secure or correct implementation.
+
+**Limitations:** all checks are on the local filesystem and Git metadata;
+local administrators and processes can modify those records. No cryptographic
+remote attestations, sandboxing, semantic merge analysis, remote host locks or
+financial spending guarantees. Git hooks and project tests can execute code
+outside worktree isolation. For unfamiliar projects, manually review the gate
+plan, source changes and target staged patch before running or merging.

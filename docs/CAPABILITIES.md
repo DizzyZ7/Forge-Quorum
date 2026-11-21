@@ -68,3 +68,12 @@ python tools/evaluate_routing.py
 | Multi-CLI claims | Atomic repository-scoped queue mutex, persistent per-job claims | Crashes require human recovery and separate scheduler inspection |
 | Observation | Bounded foreground `fq queue watch` emits changed local metadata as JSONL | No model transcript streaming, daemon or remote event service |
 | Recovery/control | `queue retry`, `cancel`, `recover`, `priority` require explicit confirmation | Never deletes user edits or terminates unrelated processes |
+
+## v0.10.0 — quality-gated dependencies and staged transfers
+
+| Capability | Available | Boundary |
+|---|---|---|
+| Verified queue dependencies | `fq queue add --gate verified --after ...` checks fresh clean parent commit and passing recorded tests | Requires explicitly executed `swarm verify --run` after committing; not an autonomous test runner |
+| Patch-aware queue dependencies | `--gate transferred` refuses downstream admission until every parent has been verified and explicitly transferred | Existing v0.9 `order` remains default; no change to legacy behavior |
+| Git patch preview and staging | `fq queue transfer CHILD --from PARENT [--apply]` checks and then stages committed parent changes into child worktree | No merge/commit/push/deploy; rejects conflicts, unsupported paths, edited worktrees, symlink/submodule changes, large patches |
+| Transfer provenance | Records SHA-256 of patch and staged index, parent and destination Git HEADs | Local records are not remote attestations and cannot detect authorized arbitrary edits outside the tool |

@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import sys
@@ -12,6 +13,8 @@ import tempfile
 import tomllib
 
 from .registry import AGENTS, AGENTS_BLOCK, CONFIG, SKILLS, VERSION, payload
+from .profiles import PROFILES, profile_names
+from .routing import recommend
 
 MANIFEST = Path('.forgequorum/manifest.json')
 START = '<!-- forge-quorum:start -->'
@@ -66,18 +69,42 @@ def load_manifest(root: Path) -> dict | None:
         raise InstallError(f'Invalid manifest: {e}') from e
     if not isinstance(data, dict) or not isinstance(data.get('managed_files'), dict):
         raise InstallError('Invalid manifest schema; refusing to overwrite')
+    if type(data.get('format')) is not int or data['format'] not in (1, 2):
+        raise InstallError('Unsupported manifest version')
+    if not isinstance(data.get('version'), str):
+        raise InstallError('Missing manifest package version')
+    if type(data.get('agents_md_preexisting')) is not bool:
+        raise InstallError('Invalid AGENTS.md ownership marker')
+    if data.get('agents_md_separator') not in ('', '\n', '\n\n'):
+        raise InstallError('Invalid AGENTS.md separator')
+    profile = data.get('profile', 'full')
+    if not isinstance(profile, str) or profile not in profile_names():
+        raise InstallError('Invalid installation profile in manifest')
+    if data['format'] == 1 and 'profile' in data:
+        raise InstallError('Unsupported profile in legacy manifest')
+    allowed = set(payload()) | {'.codex/config.toml', '.forgequorum/config.example.toml'}
     for rel, sha in data['managed_files'].items():
-        if not isinstance(rel, str) or not isinstance(sha, str) or len(sha) != 64:
-            raise InstallError('Invalid manifest entry')
+        # This allowlist is essential: uninstall must NEVER trust arbitrary paths
+        # from an editable JSON manifest, even if their digest matches.
+        if not isinstance(rel, str) or rel not in allowed:
+            raise InstallError(f'Manifest contains an unrecognized managed path: {rel!r}')
+        if not isinstance(sha, str) or re.fullmatch(r'[0-9a-f]{64}', sha) is None:
+            raise InstallError(f'Invalid digest for manifest entry: {rel!r}')
         assert_safe_path(root, Path(rel))
     return data
 
 
-def plan_install(root: Path) -> tuple[dict[Path, str], list[str], dict]:
+def plan_install(root: Path, profile: str | None = None) -> tuple[dict[Path, str], list[str], dict]:
     """Preflight every managed write; never overwrite unowned or edited files."""
     previous = load_manifest(root)
+    old_profile = previous.get('profile', 'full') if previous else None
+    selected_profile = profile or old_profile or 'full'
+    if selected_profile not in profile_names():
+        raise InstallError(f'Unknown profile: {selected_profile}')
+    if old_profile is not None and selected_profile != old_profile:
+        raise InstallError(f'Installed profile is {old_profile!r}; uninstall before changing to {selected_profile!r}')
     owned = previous['managed_files'] if previous else {}
-    additions: dict[str, str] = payload()
+    additions: dict[str, str] = payload(selected_profile)
     config = Path('.codex/config.toml')
     if (root / config).exists() and not (root / config).is_file():
         raise InstallError('Config path exists but is not a file')
@@ -135,8 +162,9 @@ def plan_install(root: Path) -> tuple[dict[Path, str], list[str], dict]:
         modifications[agents_rel] = existing + separator + AGENTS_BLOCK + '\n'
 
     new_manifest = {
-        'format': 1,
+        'format': 2,
         'version': VERSION,
+        'profile': selected_profile,
         'agents_md_preexisting': was_preexisting,
         'agents_md_separator': separator,
         'managed_files': dict(sorted(tracked.items())),
@@ -147,10 +175,10 @@ def plan_install(root: Path) -> tuple[dict[Path, str], list[str], dict]:
     return modifications, skipped, new_manifest
 
 
-def install(root: Path, dry_run: bool = False) -> tuple[int, list[str]]:
+def install(root: Path, dry_run: bool = False, profile: str | None = None) -> tuple[int, list[str]]:
     if not root.is_dir():
         raise InstallError(f'Target must be an existing directory: {root}')
-    changes, skipped, _ = plan_install(root)
+    changes, skipped, _ = plan_install(root, profile)
     if dry_run:
         return len(changes), [f'WOULD WRITE {p.as_posix()}' for p in changes] + skipped
     # Every touched path has been preflighted. In an I/O failure we restore
@@ -277,16 +305,46 @@ def uninstall(root: Path, dry_run: bool = False) -> tuple[int, list[str]]:
     return len(removable), output
 
 
+def status(root: Path) -> dict:
+    """Machine-readable installed state (no secret file contents)."""
+    old = load_manifest(root)
+    errors, warnings = check(root)
+    if old is None:
+        return {'installed': False, 'ok': False, 'version': None, 'profile': None,
+                'managed_files': 0, 'agents': 0, 'skills': 0,
+                'errors': errors, 'warnings': warnings}
+    entries = tuple(old['managed_files'])
+    return {
+        'installed': True, 'ok': not errors,
+        'version': old['version'], 'profile': old.get('profile', 'full'),
+        'managed_files': len(entries),
+        'agents': sum(p.startswith('.codex/agents/') for p in entries),
+        'skills': sum(p.startswith('.agents/skills/') for p in entries),
+        'errors': errors, 'warnings': warnings,
+    }
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog='forgequorum', description='ForgeQuorum: native Codex agent/skill pack')
     p.add_argument('--version', action='version', version=VERSION)
     sub = p.add_subparsers(dest='command', required=True)
-    for command in ('init', 'doctor', 'uninstall'):
+    for command in ('init', 'doctor', 'status', 'uninstall'):
         cmd = sub.add_parser(command)
         cmd.add_argument('--target', type=Path, default=Path('.'), help='Existing project folder (default: current directory)')
         if command in ('init', 'uninstall'):
             cmd.add_argument('--dry-run', action='store_true')
+        if command == 'init':
+            cmd.add_argument('--profile', choices=profile_names(), default=None,
+                             help='One of python, web, security, infra, full (defaults to full)')
+        if command in ('doctor', 'status'):
+            cmd.add_argument('--json', action='store_true', help='Machine-readable result')
     sub.add_parser('list', help='List bundled agents and workflow skills')
+    sub.add_parser('profiles', help='List curated agent/skill profiles')
+    rec = sub.add_parser('recommend', help='Recommend a workflow and agent team offline')
+    rec.add_argument('task', help='Describe the engineering task (English or Russian)')
+    rec.add_argument('--profile', choices=profile_names(), default='full')
+    rec.add_argument('--max-agents', type=int, default=3)
+    rec.add_argument('--json', action='store_true')
     return p
 
 
@@ -300,24 +358,56 @@ def main(argv: list[str] | None = None) -> int:
         for skill in SKILLS:
             print(f'  {skill.name:23} {skill.description}')
         return 0
+    if args.command == 'profiles':
+        for name in profile_names():
+            if name == 'full':
+                print(f'  full       All {len(AGENTS)} agents and {len(SKILLS)} skills')
+            else:
+                print(f'  {name:10} {PROFILES[name].description}')
+        return 0
+    if args.command == 'recommend':
+        try:
+            decision = recommend(args.task, args.profile, args.max_agents)
+        except ValueError as e:
+            print(f'ERROR: {e}', file=sys.stderr)
+            return 1
+        if args.json:
+            print(json.dumps(decision, ensure_ascii=False, indent=2))
+        else:
+            print(f"Suggested skill: ${decision['skill']}")
+            print(f"Suggested team: {', '.join(decision['agents'])}")
+            print(f"Why: {decision['rationale']}")
+            print(f"Prompt: {decision['prompt']}")
+            print(decision['note'])
+        return 0
     root: Path = args.target.absolute()
     try:
         if args.command == 'init':
-            count, lines = install(root, args.dry_run)
+            count, lines = install(root, args.dry_run, args.profile)
             for line in lines:
                 print(line)
             print(f'\n{count} file(s) {"would change" if args.dry_run else "changed"}.')
             if not args.dry_run:
                 print('Run: forgequorum doctor --target ' + str(root))
             return 0
-        if args.command == 'doctor':
-            errors, warnings = check(root)
-            for msg in errors:
-                print('ERROR: ' + msg)
-            for msg in warnings:
-                print('WARN: ' + msg)
-            print(f'Result: {len(errors)} error(s), {len(warnings)} warning(s)')
-            return 1 if errors else 0
+        if args.command in ('doctor', 'status'):
+            result = status(root)
+            if args.json:
+                print(json.dumps(result, ensure_ascii=False, indent=2))
+            elif args.command == 'status':
+                print(f"Installed: {result['installed']}, profile: {result['profile']}, version: {result['version']}")
+                print(f"Assets: {result['agents']} agents, {result['skills']} skills")
+                for msg in result['errors']:
+                    print('ERROR: ' + msg)
+                for msg in result['warnings']:
+                    print('WARN: ' + msg)
+            else:
+                for msg in result['errors']:
+                    print('ERROR: ' + msg)
+                for msg in result['warnings']:
+                    print('WARN: ' + msg)
+                print(f"Result: {len(result['errors'])} error(s), {len(result['warnings'])} warning(s)")
+            return 0 if result['ok'] else 1
         if args.command == 'uninstall':
             count, lines = uninstall(root, args.dry_run)
             for line in lines:

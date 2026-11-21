@@ -42,3 +42,14 @@ account_id to customer_id without downtime. Provide a backfill, read/write
 compatibility window, verification queries, abort conditions and rollback.
 Do not execute production DDL.
 ```
+
+## CLI task recommendation (v0.2.0)
+
+```bash
+fq recommend "Исправь повторную доставку событий в Redis" --profile python --json
+fq recommend "Build a responsive React dashboard" --profile web
+fq recommend "Audit API authorization" --profile security --max-agents 2
+```
+
+These are offline heuristic suggestions. Paste the generated `$skill` prompt into a
+Codex session to actually delegate work.

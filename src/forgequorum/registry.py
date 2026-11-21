@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 
 
 @dataclass(frozen=True)
@@ -122,7 +122,10 @@ def skill_markdown(spec: Skill) -> str:
     )
 
 
-def payload() -> dict[str, str]:
-    result = {f".codex/agents/{spec.name}.toml": agent_toml(spec) for spec in AGENTS}
-    result.update({f".agents/skills/{spec.name}/SKILL.md": skill_markdown(spec) for spec in SKILLS})
+def payload(profile: str = 'full') -> dict[str, str]:
+    from .profiles import selections
+
+    names, skills = selections(profile, tuple(a.name for a in AGENTS), tuple(s.name for s in SKILLS))
+    result = {f".codex/agents/{spec.name}.toml": agent_toml(spec) for spec in AGENTS if spec.name in names}
+    result.update({f".agents/skills/{spec.name}/SKILL.md": skill_markdown(spec) for spec in SKILLS if spec.name in skills})
     return result

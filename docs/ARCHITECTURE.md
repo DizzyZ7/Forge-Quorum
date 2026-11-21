@@ -6,7 +6,7 @@
 - **Content registry** (`src/forgequorum/registry.py`): independent, original role and workflow definitions.
 - **Codex runtime** (external): reads `.codex/agents`, `.agents/skills`, `AGENTS.md` and trusted `.codex/config.toml`; executes agents when appropriate.
 - **Orchestration policy** (`route-task` skill): planning and fan-out recommendations to Codex.
-- **Isolated job runner** (`src/forgequorum/swarm.py`): opt-in `codex exec`, Git worktree creation, private job metadata, non-destructive review/cleanup, per-job locks and bounded batch workers; no coordinator daemon.
+- **Isolated job runner** (`src/forgequorum/swarm.py`): opt-in `codex exec`, Git worktree creation, private job metadata, non-destructive review/cleanup, per-job locks and bounded worker pool; no coordinator daemon.
 
 ## Agent lifecycle
 
@@ -32,3 +32,7 @@ The project targets official Codex custom agent TOML, the agent skills folder co
 ## Performance principle
 
 A trivial task should use zero extra agents. A typical cross-cutting feature should require only two to four specialized agents, not all twenty. Parallelism can reduce wall-clock duration only for truly independent tasks and may increase total token usage.
+
+## v0.7 operational controls
+
+`src/forgequorum/swarm_control.py` implements read-only cross-worktree path reports, explicit test gates, last-run JSONL token summaries, cooperative cancel requests and conservative recovery. `swarm.py` owns process startup/termination and job locks. The unit of isolation remains a Git worktree, **not** a security sandbox for tools, hooks, tests or external services. No unattended merge, deploy or process recovery is attempted.

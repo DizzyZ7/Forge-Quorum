@@ -29,23 +29,9 @@ Avoid installing the same skill through both methods. Hooks are opt-in and are n
 
 ---
 
-> **v0.4.0 is a configuration pack, not an autonomous agent runtime.** Actual subagent execution is delegated to Codex, subject to client support, sandbox permissions and available tools. Roles are instructions, not separate trained models.
+> **v0.7.0 adds explicitly authorized, bounded parallel batches of isolated Codex jobs. It is not an autonomous multi-agent scheduler.** Actual subagent execution is delegated to Codex, subject to client support, sandbox permissions and available tools. Roles are instructions, not separate trained models.
 
 [Русская документация](README.md) · [Language support](docs/LANGUAGE-SUPPORT.md) · [Architecture](docs/ARCHITECTURE.md) · [Roadmap](ROADMAP.md)
-
-## Isolated worktrees and concurrent execution (v0.6.0)
-
-ForgeQuorum prepares **independent Git worktrees** for coding tasks and offers explicit, capped parallel Codex execution. Preview operations do not call any model.
-
-```bash
-fq swarm start "Implement a Go API" --target . --json
-fq swarm start "Write frontend tests" --target . --json
-fq swarm batch <job-a> <job-b> --target . --max-parallel 2
-fq swarm batch <job-a> <job-b> --target . --max-parallel 2 --execute
-fq swarm review <job-a> --target . --json
-```
-
-Up to 12 prepared job IDs and 4 concurrent `codex exec` processes are supported **per batch**, not globally. A job-level lock prevents duplicate execution. No automatic merges, pushes, deployments, token metering or spending limits are provided. Model execution must be explicitly authorized and may consume tokens. See [orchestration details](docs/ORCHESTRATION.md).
 
 ## Quick start
 
@@ -69,6 +55,23 @@ Select only necessary language-specific specialists, assign non-overlapping file
 ownership, run the actual build/tests, report evidence and request approval
 before publishing or deploying anything.
 ```
+
+## Isolated Codex jobs and bounded batches (v0.7.0)
+
+```bash
+fq swarm plan "Build a Go API with tests" --target . --json
+fq swarm start "Build a Go API with tests" --target . --json
+fq swarm list --target .
+fq swarm run <job-id> --target .               # preview, no execution
+fq swarm run <job-id> --target . --execute    # explicit Codex invocation
+fq swarm status <job-id> --target .
+fq swarm review <job-id> --target .          # read-only Git change summary
+fq swarm batch <job-a> <job-b> --target . --max-parallel 2          # preview
+fq swarm batch <job-a> <job-b> --target . --max-parallel 2 --execute
+fq swarm cleanup <job-id> --target . --confirm
+```
+
+Every job starts in its own `forgequorum/<id>` branch and Git worktree based on committed HEAD. Your uncommitted changes are not copied or discarded. No automatic merge, push or deployment is performed. Execution requires a locally installed and authenticated Codex CLI and may consume tokens. Parallel batches are limited to four workers per CLI invocation, not globally; job-level claims protect against duplicate starts. There is no token/cost quota or automatic conflict resolution. See the [orchestration guide](docs/ORCHESTRATION.md) for safety, limitations and review workflow.
 
 ## Why this approach?
 
@@ -115,3 +118,16 @@ See [CONTRIBUTING.md](CONTRIBUTING.md), [ROADMAP.md](ROADMAP.md) and [CHANGELOG.
 If ForgeQuorum helps, consider starring ⭐ the repository.
 
 MIT License. Copyright © 2026 Dimash Janibekov. Independent community project; not affiliated with OpenAI.
+
+## Worktree orchestration controls (v0.7.0)
+
+```bash
+fq swarm conflicts <job-a> <job-b> --target . --json  # read-only path overlap report
+fq swarm verify <job-id> --target .                    # preview tests
+fq swarm verify <job-id> --target . --run              # explicitly execute project-defined tests
+fq swarm usage --target . --json                      # last-run reported token counts
+fq swarm cancel <job-id> --target . --confirm          # cooperative cancellation
+fq swarm recover <job-id> --target . --confirm         # mark orphaned running record interrupted
+```
+
+Cancellation is best effort and never removes worktree changes; recovery refuses to clear run locks. Tests may execute untrusted code and require `--run`. Token usage is JSONL-reported, possibly incomplete, and **not a monetary cost estimate**. ForgeQuorum does not auto-retry, merge, publish or deploy changes. See [the orchestration guide](docs/ORCHESTRATION.md).

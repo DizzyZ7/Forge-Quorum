@@ -14,8 +14,8 @@ This document describes **ForgeQuorum itself**. Features marked as planned are n
 | Local context | `fq context` summarizes stack metadata; `fq checkpoint` writes opt-in notes | No automatic transcript capture or cross-session learning |
 | Hooks | Optional example for an advisory Codex session-start hook | Requires explicit configuration and trust; not part of plugin distribution |
 | Quality | Unit tests, portable exports checked in CI, routing fixtures | No real multi-language end-to-end Codex task matrix yet |
-| Isolated Codex jobs | `fq swarm` plans, creates dedicated Git worktrees, optionally invokes `codex exec` and preserves reviewable Git branches | Optional batches of prepared jobs (up to 4 workers per batch); no global concurrency limit, automatic merges, token accounting or production deploys |
-| Cost controls | Explicit `--execute`, per-job timeout and per-batch worker cap | No global token/cost accounting, spending limit or guaranteed cleanup of child processes |
+| Isolated Codex jobs | `fq swarm` plans, creates dedicated Git worktrees, optionally invokes `codex exec` and preserves reviewable Git branches | Optional bounded batch execution of prepared jobs, max 4 processes per batch; Codex-native subagent delegation is advisory. No global concurrency limit, merges or production deploys. v0.7 adds explicit cancellation, interrupted-state recovery, worktree path overlap reports, test gates and partial reported-token telemetry |
+| Cost controls | Explicit `--execute`, per-job timeout and per-batch concurrency cap | Reported per-run token counts and a cross-job summary; no account-wide billing, hard spend cap, or guaranteed termination of all child processes |
 | Deployment | Review-first release and rollout guidance | No unattended deploys, cloud mutations or destructive production commands |
 
 ## Installation and verification

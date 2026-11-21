@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from time import monotonic
@@ -346,35 +347,116 @@ def _prompt(job: dict) -> str:
     )
 
 
-def _codex_exec(workspace: Path, prompt: str, timeout: int) -> tuple[str, int, int]:
-    """Return status, exit code and event count; never retain model transcript."""
-    binary = shutil.which("codex")
-    if not binary:
-        raise SwarmError("Codex CLI is missing from PATH. Install and authenticate it first.")
-    argv = [binary, "exec", "--json", "--sandbox", "workspace-write", prompt]
-    # Streaming to anonymous temp files bounds RAM and avoids writing traces
-    # into the project. Raw prompts/transcripts are not persisted by this tool.
-    with tempfile.TemporaryFile(mode="w+t", encoding="utf-8") as output, \
-         tempfile.TemporaryFile(mode="w+t", encoding="utf-8") as error:
+def _stop_codex(proc: subprocess.Popen) -> None:
+    """Best-effort child cancellation; do not signal any unrelated process."""
+    if proc.poll() is not None:
+        return
+    try:
+        if os.name == 'nt':
+            proc.terminate()
+        else:
+            os.killpg(proc.pid, signal.SIGTERM)
+    except (OSError, ProcessLookupError):
         try:
-            completed = subprocess.run(argv, cwd=workspace, stdin=subprocess.DEVNULL,
-                                       stdout=output, stderr=error, timeout=timeout,
-                                       check=False)
-            status, code = ("completed", 0) if completed.returncode == 0 else ("failed", completed.returncode)
+            proc.terminate()
+        except OSError:
+            pass
+    try:
+        proc.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        try:
+            if os.name == 'nt':
+                proc.kill()
+            else:
+                os.killpg(proc.pid, signal.SIGKILL)
+        except (OSError, ProcessLookupError):
+            pass
+        try:
+            proc.wait(timeout=3)
         except subprocess.TimeoutExpired:
-            status, code = "timed_out", 124
+            pass
+
+
+def _codex_exec(workspace: Path, prompt: str, timeout: int) -> tuple[str, int, int, dict]:
+    """Stream to private temporary files; retain only aggregated, reported usage."""
+    binary = shutil.which('codex')
+    if not binary:
+        raise SwarmError('Codex CLI is missing from PATH. Install and authenticate it first.')
+    argv = [binary, 'exec', '--json', '--sandbox', 'workspace-write', '-']
+    # Cancellation is job-scoped: the workspace basename is the validated job ID.
+    job_id = workspace.name
+    if not ID.fullmatch(job_id):
+        raise SwarmError('Invalid managed job worktree')
+    _root, common = _repo(workspace)
+    cancel_marker = _job_dir(common) / f'{job_id}.cancel'
+    if cancel_marker.is_symlink():
+        raise SwarmError('Refusing symlinked cancellation marker')
+    reason = None
+    started = monotonic()
+    with tempfile.TemporaryFile(mode='w+t', encoding='utf-8') as output, \
+         tempfile.TemporaryFile(mode='w+t', encoding='utf-8') as error:
+        try:
+            opts = {'start_new_session': True} if os.name != 'nt' else {
+                'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP}
+            with subprocess.Popen(argv, cwd=workspace, stdin=subprocess.PIPE,
+                                  stdout=output, stderr=error, shell=False, **opts) as proc:
+                # The prompt is passed via standard input, not exposed in OS process arguments.
+                try:
+                    proc.stdin.write(prompt.encode('utf-8'))
+                except BrokenPipeError:
+                    pass
+                finally:
+                    proc.stdin.close()
+                while proc.poll() is None:
+                    if cancel_marker.exists():
+                        reason = 'cancelled'
+                        _stop_codex(proc)
+                        break
+                    if monotonic() - started >= timeout:
+                        reason = 'timed_out'
+                        _stop_codex(proc)
+                        break
+                    try:
+                        proc.wait(timeout=min(.2, max(.01, timeout - (monotonic() - started))))
+                    except subprocess.TimeoutExpired:
+                        pass
+                code = proc.returncode
         except OSError as exc:
-            raise SwarmError(f"Cannot launch Codex: {type(exc).__name__}") from exc
+            raise SwarmError(f'Cannot launch Codex: {type(exc).__name__}') from exc
+        # A cancellation sent at the end of a short task is still acknowledged.
+        if cancel_marker.exists() and reason is None:
+            reason = 'cancelled'
+        if cancel_marker.exists() and not cancel_marker.is_symlink():
+            cancel_marker.unlink(missing_ok=True)
+        status = reason or ('completed' if code == 0 else 'failed')
+        code = 130 if reason == 'cancelled' else 124 if reason == 'timed_out' else code
         output.seek(0)
         count = 0
+        usage = {'source': 'not-reported', 'input_tokens': 0,
+                 'cached_input_tokens': 0, 'output_tokens': 0, 'total_tokens': 0,
+                 'partial': status != 'completed'}
         for line in output:
-            if len(line) <= 1024 * 1024:
-                try:
-                    if isinstance(json.loads(line), dict):
-                        count += 1
-                except json.JSONDecodeError:
-                    pass
-        return status, code, count
+            if len(line) > 1024 * 1024:
+                continue
+            try:
+                event = json.loads(line)
+            except (json.JSONDecodeError, UnicodeError):
+                continue
+            if not isinstance(event, dict):
+                continue
+            count += 1
+            # These are reported usage numbers, not a bill or a reliable cost estimate.
+            if event.get('type') == 'turn.completed' and isinstance(event.get('usage'), dict):
+                raw = event['usage']
+                values = {}
+                for key in ('input_tokens', 'cached_input_tokens', 'output_tokens'):
+                    value = raw.get(key)
+                    values[key] = value if type(value) is int and 0 <= value <= 10**12 else 0
+                usage['source'] = 'codex-jsonl'
+                for key, value in values.items():
+                    usage[key] += value
+        usage['total_tokens'] = usage['input_tokens'] + usage['output_tokens']
+        return status, code, count, usage
 
 
 def execute_job(target: Path, job_id: str, timeout: int = 900, execute: bool = False) -> dict:
@@ -384,7 +466,7 @@ def execute_job(target: Path, job_id: str, timeout: int = 900, execute: bool = F
     job = _check_runnable(root, common, job_id)
     workspace = Path(job["workspace"])
     if not execute:
-        return {"id": job_id, "state": "dry-run", "argv": ["codex", "exec", "--json", "--sandbox", "workspace-write", "<generated task prompt>"],
+        return {"id": job_id, "state": "dry-run", "argv": ["codex", "exec", "--json", "--sandbox", "workspace-write", "-"],
                 "workspace": str(workspace), "notice": "Pass --execute to authorize a real Codex invocation, which may consume tokens and edit this worktree."}
     with _exclusive_run(common, job_id):
         # Revalidate after claiming the lock: another process may have finished
@@ -396,10 +478,14 @@ def execute_job(target: Path, job_id: str, timeout: int = 900, execute: bool = F
         _write_job(common, job)
         started = monotonic()
         try:
-            status, code, events = _codex_exec(workspace, _prompt(job), timeout)
+            outcome = _codex_exec(workspace, _prompt(job), timeout)
+            status, code, events = outcome[:3]
+            usage = outcome[3] if len(outcome) > 3 else {
+                'source': 'not-reported', 'input_tokens': 0, 'cached_input_tokens': 0,
+                'output_tokens': 0, 'total_tokens': 0, 'partial': status != 'completed'}
             job["state"] = status
             job["last_execution"] = {"at": _now(), "exit_code": code, "events_seen": events,
-                                     "timeout_seconds": timeout,
+                                     "timeout_seconds": timeout, "usage": usage,
                                      "elapsed_seconds": round(monotonic() - started, 3)}
         except Exception:
             job["state"] = "failed"
@@ -409,6 +495,9 @@ def execute_job(target: Path, job_id: str, timeout: int = 900, execute: bool = F
             _write_job(common, job)
             raise
         _write_job(common, job)
+        marker = _job_dir(common) / f"{job_id}.cancel"
+        if marker.exists() and not marker.is_symlink():
+            marker.unlink(missing_ok=True)
     return inspect_job(root, job_id)
 
 
@@ -419,8 +508,8 @@ def cleanup_job(target: Path, job_id: str, confirm: bool = False) -> dict:
     if not confirm:
         return {"id": job_id, "state": "dry-run", "workspace": str(workspace),
                 "notice": "Requires --confirm. Only clean, Git-registered worktrees can be removed. Branch is preserved."}
-    if job["state"] in ("running", "cleaned"):
-        raise SwarmError("Refusing cleanup of a running or already cleaned job")
+    if job["state"] in ("running", "cleaned") or (_job_dir(common) / f"{job_id}.lock").exists():
+        raise SwarmError("Refusing cleanup of a running, locked, or already cleaned job")
     if workspace.is_symlink() or not workspace.is_dir() or not _registered_workspace(root, workspace):
         raise SwarmError("Worktree is missing or has changed; refusing cleanup")
     if _git(workspace, "status", "--porcelain"):

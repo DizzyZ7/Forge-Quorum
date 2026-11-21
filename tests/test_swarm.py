@@ -141,17 +141,31 @@ class SwarmTests(unittest.TestCase):
     def test_no_shell_execution_and_jsonl_bounded(self):
         from forgequorum.swarm import _codex_exec
         job = create_job(self.root, 'Write Go API', 'go')
+        class FakeProcess:
+            returncode = 0
+            pid = 12345
+            def __init__(self, argv, **kwargs):
+                from io import BytesIO
+                self.stdin = BytesIO()
+                self.argv = argv
+                self.assertions = kwargs
+                kwargs['stdout'].write('{"type":"turn.completed","usage":{"input_tokens":14,"cached_input_tokens":2,"output_tokens":6}}\ninvalid\n')
+            def __enter__(self):
+                return self
+            def __exit__(self, *exc):
+                return False
+            def poll(self):
+                return self.returncode
         with patch('forgequorum.swarm.shutil.which',return_value='/fake/codex'), \
-             patch('forgequorum.swarm.subprocess.run') as run:
-            def fake_run(argv, **kwargs):
-                self.assertIsInstance(argv, list)
-                self.assertEqual(argv[1:5], ['exec','--json','--sandbox','workspace-write'])
-                self.assertFalse(kwargs.get('shell', False))
-                kwargs['stdout'].write('{"type":"turn.completed"}\ninvalid\n')
-                return type('Result', (), {'returncode':0})()
-            run.side_effect=fake_run
+             patch('forgequorum.swarm._repo',return_value=(self.root, self.root/'.git')), \
+             patch('forgequorum.swarm.subprocess.Popen',side_effect=FakeProcess) as popen:
             result=_codex_exec(Path(job['workspace']), 'test prompt', 60)
-        self.assertEqual(result, ('completed',0,1))
+        self.assertEqual(result[:3], ('completed',0,1))
+        self.assertEqual(result[3]['total_tokens'],20)
+        self.assertEqual(popen.call_args.args[0][1:5],['exec','--json','--sandbox','workspace-write'])
+        self.assertIs(popen.call_args.kwargs['shell'],False)
+        self.assertEqual(popen.call_args.args[0][-1], '-')
+        self.assertNotIn('test prompt', popen.call_args.args[0])
 
 
 if __name__ == '__main__':

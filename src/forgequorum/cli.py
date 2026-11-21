@@ -20,6 +20,7 @@ from .quality import run_verification
 from .session import context_summary, create_checkpoint
 from .swarm import (SwarmError, plan, create_job, inspect_job, list_jobs,
                     execute_job, cleanup_job, run_batch, review_job)
+from .swarm_control import recovery, request_cancel, conflicts, verify_job, usage_report
 
 MANIFEST = Path('.forgequorum/manifest.json')
 START = '<!-- forge-quorum:start -->'
@@ -377,7 +378,7 @@ def parser() -> argparse.ArgumentParser:
     hook = sub.add_parser('hook-context', help='Opt-in Codex SessionStart hook (read-only; accepts JSON stdin)')
     swarm = sub.add_parser('swarm', help='Plan and execute opt-in Codex jobs in isolated Git worktrees')
     swarm_sub = swarm.add_subparsers(dest='swarm_command', required=True)
-    for name in ('plan', 'start', 'run', 'status', 'list', 'cleanup', 'batch', 'review'):
+    for name in ('plan', 'start', 'run', 'status', 'list', 'cleanup', 'batch', 'review', 'cancel', 'recover', 'conflicts', 'verify', 'usage'):
         cmd = swarm_sub.add_parser(name)
         cmd.add_argument('--target', type=Path, default=Path('.'))
         cmd.add_argument('--json', action='store_true')
@@ -385,11 +386,20 @@ def parser() -> argparse.ArgumentParser:
             cmd.add_argument('task', help='Non-sensitive task description')
             cmd.add_argument('--profile', choices=profile_names() + ('auto',), default='auto')
             cmd.add_argument('--max-agents', type=int, default=3)
-        if name in ('run', 'status', 'cleanup', 'review'):
+        if name in ('run', 'status', 'cleanup', 'review', 'cancel', 'recover', 'verify'):
             cmd.add_argument('job_id', help='12-character ForgeQuorum job ID')
         if name == 'run':
             cmd.add_argument('--execute', action='store_true', help='Explicitly run Codex in this worktree')
             cmd.add_argument('--timeout', type=int, default=900)
+        if name in ('cancel', 'recover'):
+            cmd.add_argument('--confirm', action='store_true', help='Confirm non-destructive state transition')
+        if name == 'verify':
+            cmd.add_argument('--run', action='store_true', help='Execute selected project tests in the job worktree')
+            cmd.add_argument('--timeout', type=int, default=120)
+        if name == 'conflicts':
+            cmd.add_argument('job_ids', nargs='+', help='Between 2 and 12 worktree job IDs')
+        if name == 'usage':
+            cmd.add_argument('job_ids', nargs='*', help='Selected jobs or omit for all jobs')
         if name == 'cleanup':
             cmd.add_argument('--confirm', action='store_true', help='Remove only a clean worktree; preserve its branch')
         if name == 'batch':
@@ -419,6 +429,16 @@ def main(argv: list[str] | None = None) -> int:
                 result = run_batch(root, args.job_ids, args.timeout, args.max_parallel, args.execute)
             elif args.swarm_command == 'review':
                 result = review_job(root, args.job_id)
+            elif args.swarm_command == 'conflicts':
+                result = conflicts(root, args.job_ids)
+            elif args.swarm_command == 'usage':
+                result = usage_report(root, args.job_ids)
+            elif args.swarm_command == 'cancel':
+                result = request_cancel(root, args.job_id, args.confirm)
+            elif args.swarm_command == 'recover':
+                result = recovery(root, args.job_id, args.confirm)
+            elif args.swarm_command == 'verify':
+                result = verify_job(root, args.job_id, args.run, args.timeout)
             else:
                 result = cleanup_job(root, args.job_id, args.confirm)
         except (SwarmError, OSError, ValueError) as exc:
@@ -428,7 +448,8 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(result, indent=2, ensure_ascii=False))
         else:
             print(json.dumps(result, indent=2, ensure_ascii=False))
-        return 1 if args.swarm_command in ('run', 'batch') and args.execute and result.get('state') != 'completed' else 0
+        return 1 if ((args.swarm_command in ('run', 'batch') and args.execute and result.get('state') != 'completed')
+                     or (args.swarm_command == 'verify' and args.run and result.get('state') != 'passed')) else 0
     if args.command == 'list':
         print(f'{len(AGENTS)} specialized agents:')
         for agent in AGENTS:

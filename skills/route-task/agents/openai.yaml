@@ -1,0 +1,4 @@
+interface:
+  display_name: "Route Engineering Task"
+  short_description: "Choose a small, accountable multi-agent team."
+  default_prompt: "Use $route-task to complete this task with verified results."

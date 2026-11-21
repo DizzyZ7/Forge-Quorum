@@ -5,7 +5,7 @@ from collections import Counter, defaultdict
 import os
 from pathlib import Path
 
-IGNORED_DIRS = frozenset({'.git', '.hg', '.svn', '.venv', 'venv', 'node_modules', 'vendor',
+IGNORED_DIRS = frozenset({'.forgequorum', '.git', '.hg', '.svn', '.venv', 'venv', 'node_modules', 'vendor',
                           'dist', 'build', 'target', '__pycache__', '.next', '.nuxt',
                           '.tox', '.mypy_cache', '.pytest_cache', 'coverage', '.gradle',
                           '.dart_tool', '.idea', '.vscode', 'Pods', 'DerivedData', '.turbo'})

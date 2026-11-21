@@ -1,0 +1,15 @@
+{"task":"Build a Kotlin Ktor API","skill":"ship-jvm-service","agent":"kotlin-engineer"}
+{"task":"Build a Java Spring Boot service","skill":"ship-jvm-service","agent":"java-engineer"}
+{"task":"Build a Golang gRPC service","skill":"ship-go-service","agent":"go-engineer"}
+{"task":"Build a Rust Tokio service","skill":"ship-rust-crate","agent":"rust-engineer"}
+{"task":"Create an ASP.NET Core API","skill":"ship-dotnet","agent":"dotnet-engineer"}
+{"task":"Сделай Flutter мобильное приложение","skill":"build-mobile","agent":"flutter-engineer"}
+{"task":"Develop Android Jetpack Compose UI","skill":"build-mobile","agent":"android-engineer"}
+{"task":"Develop SwiftUI for iOS","skill":"build-mobile","agent":"swift-engineer"}
+{"task":"Build an Electron desktop app","skill":"build-desktop","agent":"desktop-engineer"}
+{"task":"Create gameplay in Unity","skill":"gameplay-iteration","agent":"game-engineer"}
+{"task":"Create a data pipeline with Airflow","skill":"data-pipeline","agent":"data-engineer"}
+{"task":"Prepare a Terraform infrastructure plan","skill":"infrastructure-plan","agent":"terraform-engineer"}
+{"task":"Build an ML RAG evaluation pipeline","skill":"ml-lifecycle","agent":"ml-engineer"}
+{"task":"Review the authorization logic for XSS and injection","skill":"security-gate","agent":"security-auditor"}
+{"task":"Improve latency in a slow production query","skill":"performance-lab","agent":"performance-engineer"}

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "forgequorum",
+  "version": "0.4.0",
+  "description": "Polyglot engineering workflows and quality gates for Codex and ChatGPT.",
+  "author": {
+    "name": "Dimash Janibekov",
+    "url": "https://github.com/DizzyZ7"
+  },
+  "homepage": "https://github.com/DizzyZ7/Forge-Quorum",
+  "repository": "https://github.com/DizzyZ7/Forge-Quorum",
+  "license": "MIT",
+  "keywords": ["codex", "agent-skills", "engineering", "multi-agent", "testing"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "ForgeQuorum",
+        "shortDescription": "Polyglot engineering skills for Codex",
+        "longDescription": "Plan, implement, test, review and hand off engineering tasks with evidence-first Codex workflows.",
+        "developerName": "Dimash Janibekov",
+        "category": "Productivity",
+        "websiteURL": "https://github.com/DizzyZ7/Forge-Quorum",
+        "defaultPrompt": [
+          "Use the route-task skill to plan a safe engineering workflow.",
+          "Use the verification-loop skill to verify this repository change."
+        ]
+      }
+    }
+  }
+}

@@ -20,3 +20,15 @@ Each agent needs a clear name, mission, nonoverlapping focus and verifiable outp
 ## Skill definition requirements
 
 Each skill needs a trigger, ordered procedure, delegation policy and done criteria. Avoid unverifiable promises or instructions to autonomously deploy, publish or bypass permissions.
+
+## Contributing skill changes (v0.4+)
+
+Edit the source-of-truth workflow specs in `src/forgequorum/registry.py`,
+`src/forgequorum/polyglot.py`, or `src/forgequorum/extra_workflows.py`.
+Generate Codex plugin exports with `python tools/sync_skills.py`, then run
+`python tools/sync_skills.py --check` and `python -m unittest discover -s tests -v`.
+Generated root `skills/` content must not drift from the Python catalog.
+
+Add routing regression cases to `evals/routing.jsonl` whenever task routing changes,
+then run `python tools/evaluate_routing.py`. Do not copy third-party agent
+instructions or imply live Codex integration without an integration test.

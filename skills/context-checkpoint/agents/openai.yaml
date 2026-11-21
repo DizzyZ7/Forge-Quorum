@@ -1,0 +1,4 @@
+interface:
+  display_name: "Session Checkpoint"
+  short_description: "Make a concise, privacy-aware project handoff."
+  default_prompt: "Use $context-checkpoint to complete this task with verified results."

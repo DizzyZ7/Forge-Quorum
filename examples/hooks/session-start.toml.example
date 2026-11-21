@@ -1,0 +1,14 @@
+# OPT-IN ONLY: Paste into trusted project .codex/config.toml after installing
+# `forgequorum` in the same environment as Codex.
+# Hooks are deliberately excluded from our portable public plugin: public
+# plugin directory submission does not currently accept lifecycle hooks.
+# Hook commands execute code locally and require user trust review.
+[[hooks.SessionStart]]
+matcher = "^(startup|resume|compact)$"
+
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = "fq hook-context"
+commandWindows = "fq hook-context"
+timeout = 10
+additionalContextLimit = 400

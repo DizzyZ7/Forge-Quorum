@@ -1,0 +1,4 @@
+interface:
+  display_name: "Test Driven Loop"
+  short_description: "Develop changes through failing then passing tests."
+  default_prompt: "Use $test-driven-loop to complete this task with verified results."

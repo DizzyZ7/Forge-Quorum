@@ -1,0 +1,4 @@
+interface:
+  display_name: "Verify Changes"
+  short_description: "Run evidence-backed quality gates before delivery."
+  default_prompt: "Use $verification-loop to complete this task with verified results."

@@ -16,6 +16,8 @@ from .registry import AGENTS, AGENTS_BLOCK, CONFIG, SKILLS, VERSION, payload
 from .profiles import PROFILES, profile_names
 from .routing import recommend
 from .stack import detect_stack
+from .quality import run_verification
+from .session import context_summary, create_checkpoint
 
 MANIFEST = Path('.forgequorum/manifest.json')
 START = '<!-- forge-quorum:start -->'
@@ -359,6 +361,18 @@ def parser() -> argparse.ArgumentParser:
     rec.add_argument('--target', type=Path, default=None, help='Optional project directory to detect stack from filenames')
     rec.add_argument('--max-agents', type=int, default=3)
     rec.add_argument('--json', action='store_true')
+    verify = sub.add_parser('verify', help='Plan polyglot quality gates; --run is required to execute project code')
+    verify.add_argument('--target', type=Path, default=Path('.'))
+    verify.add_argument('--run', action='store_true', help='Opt in to running selected project tests; may have side effects')
+    verify.add_argument('--timeout', type=int, default=120, help='Per-gate timeout, 1..1800 seconds')
+    verify.add_argument('--json', action='store_true')
+    context = sub.add_parser('context', help='Show a compact filename-only context report')
+    context.add_argument('--target', type=Path, default=Path('.'))
+    context.add_argument('--json', action='store_true')
+    checkpoint = sub.add_parser('checkpoint', help='Explicitly write a local-only, no-code session checkpoint')
+    checkpoint.add_argument('--target', type=Path, default=Path('.'))
+    checkpoint.add_argument('--note', default='', help='Optional user-authored, non-sensitive note (max 4000 chars)')
+    hook = sub.add_parser('hook-context', help='Opt-in Codex SessionStart hook (read-only; accepts JSON stdin)')
     return p
 
 
@@ -416,6 +430,52 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Prompt: {decision['prompt']}")
             print(decision['note'])
         return 0
+    if args.command == 'hook-context':
+        # Never read transcripts, prompts, environment variables or code.
+        # Input is a small JSON event supplied by Codex, not arbitrary Python.
+        try:
+            raw = sys.stdin.read(65537)
+            if len(raw) > 65536:
+                raise ValueError('Hook input too large')
+            data = json.loads(raw) if raw.strip() else {}
+            if not isinstance(data, dict):
+                raise ValueError('Expected JSON object')
+            root = Path(data.get('cwd', '.')).absolute()
+            ctx = context_summary(root)
+            short = f"ForgeQuorum: profile={ctx['recommended_profile']}; languages={','.join(ctx['languages'][:5])}; files={ctx['files_inspected']}. Verify repository guidance before edits."
+            print(json.dumps({'hookSpecificOutput': {'hookEventName': 'SessionStart', 'additionalContext': short}}))
+            return 0
+        except (ValueError, OSError, TypeError) as e:
+            print(f'ForgeQuorum context hook skipped: {e}', file=sys.stderr)
+            return 0  # Advisory hooks must not break the parent session.
+    if args.command in ('verify', 'context', 'checkpoint'):
+        try:
+            root = args.target.absolute()
+            if args.command == 'verify':
+                result = run_verification(root, timeout=args.timeout, run=args.run)
+                if args.json:
+                    print(json.dumps(result, ensure_ascii=False, indent=2))
+                else:
+                    for gate in result['gates']:
+                        print(f"PLAN: {gate['name']}: {' '.join(gate['argv'])} ({gate['reason']})")
+                    for gate in result.get('results', []):
+                        print(f"RESULT: {gate['name']}: {gate['status']}")
+                    print(result['notice'])
+                return 0 if not args.run or result['ok'] else 1
+            if args.command == 'context':
+                result = context_summary(root)
+                if args.json:
+                    print(json.dumps(result, ensure_ascii=False, indent=2))
+                else:
+                    print(f"Profile: {result['recommended_profile']} | files: {result['files_inspected']}")
+                    print('Languages: ' + ', '.join(result['languages']))
+                    print(result['privacy'])
+                return 0
+            print('Saved local checkpoint: ' + str(create_checkpoint(root, args.note)))
+            return 0
+        except (ValueError, OSError) as e:
+            print(f'ERROR: {e}', file=sys.stderr)
+            return 1
     root: Path = args.target.absolute()
     try:
         if args.command == 'init':

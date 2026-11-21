@@ -1,48 +1,26 @@
-# Roadmap / План развития
+# ForgeQuorum roadmap
 
-## v0.1.0 — shipped locally
+## Shipped in v0.4.0
 
-- [x] 20 domain-specific native Codex subagents
-- [x] 14 reusable workflow skills with delegation and completion criteria
-- [x] Project-scoped safe installer with dry-run, SHA-256 manifest and uninstall
-- [x] `AGENTS.md` integration without replacing existing project instructions
-- [x] TOML and integrity checks through `forgequorum doctor`
-- [x] Unit tests and GitHub Actions configuration
-- [x] English + Russian getting-started documentation
+- Independently authored Codex Agent Plugins package with synchronized skills.
+- Project-scoped agent installation, role/stack routing, checkable offline routing fixtures.
+- Read-only, multi-language test plans and explicitly authorized execution.
+- Local file-name context summaries and opt-in private checkpoints; opt-in SessionStart template.
 
-## v0.2.0 — shipped: safety, profiles and offline routing
+## Next milestones — NOT implemented
 
-- [x] Curated project profiles (`python`, `web`, `security`, `infra`, `full`)
-- [x] `status` / `doctor --json` for CI-friendly diagnostics
-- [x] Local Russian/English keyword-based task suggestions (`recommend`)
-- [x] Manifest path allowlist and legacy manifest upgrade tests
+1. End-to-end plugin installation smoke tests in supported Codex CLI/desktop versions, with version matrix and compatibility report.
+2. Robust opt-in lifecycle hook library with explicit trust review, bounded outputs, cross-platform testing.
+3. Persistent workflow state and human-reviewed memory/lesson promotion, no automatic transcript harvesting.
+4. Agent scheduler with Codex-backed real execution, strict file ownership and isolated git worktrees.
+5. Evidence-based eval harness for whole multi-agent runs and measured token/cost budget (requires approved runtime integration).
+6. Language-specific verification presets covering more frameworks and SDKs, without arbitrary command injection.
+7. Public plugin submission preparation, policy review, security checks, demo project and installation docs.
 
-## v0.2.x — remaining reliability & distribution
+## Principles
 
-- [ ] Per-user installation (`~/.codex/agents` and `~/.agents/skills`) with strict conflict handling
-- [ ] Transaction journal and recovery after forced interruption
-- [ ] Release build checks and signed checksums
-- [ ] Windows/macOS/Linux smoke test with a pinned Codex CLI version
+- Portability across languages and operating systems, not Python-only development.
+- Never confuse an agent configuration with a separately trained model or an executing worker.
+- No surprise side effects: dry-run/planning by default, opt-in execution and deployment.
+- Honest verification: only call a check passed when it actually ran.
 
-## v0.3 — deeper agent orchestration
-
-- [ ] Worktree-aware parallel implementers with explicit ownership
-- [ ] Progress dashboard (active subagents, artifacts, failures, verified checks)
-- [ ] Cost/context budget configuration and smart agent selection
-- [ ] Persisted handoff summaries with credential/PII redaction
-- [ ] Deterministic quality gates with explicit allow/deny policies
-
-## v0.4 — optional GPT API engine
-
-- [ ] Independent optional orchestration adapter using supported OpenAI APIs
-- [ ] Typed task contracts and resumable execution
-- [ ] Tool permissions, sandbox separation and audit events
-- [ ] Automated evaluation suite for quality/cost/duration vs single-agent baseline
-
-## Design principles
-
-1. Prove benefits against a single agent; many agents are not a goal in themselves.
-2. Never confuse model instructions with actual permission enforcement.
-3. Preserve user files and make installation/uninstallation reversible.
-4. Use documented, current Codex interfaces; avoid brittle patches.
-5. Report genuine verification, not generated success claims.

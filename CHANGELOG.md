@@ -1,35 +1,32 @@
+## 0.4.0 — Native Codex plugin and evidence-first workflows
+
+- Portable Agent Plugins `plugin.json`, local Git-backed repository marketplace, 39 exported skills with reproducible sync checks and selected Codex UI metadata.
+- Added five original skills: test-driven-loop, verification-loop, context-checkpoint, build-failure-triage, continuous-improvement.
+- Added `fq verify` conservative multi-language test-plan mode (`--run` explicitly required to execute), `fq context`, opt-in `fq checkpoint`, and advisory `fq hook-context` for manually configured SessionStart hooks.
+- Added offline 15-fixture routing evaluation suite, independently maintained capability inventory, plugin and safety regression coverage.
+- CI verifies committed plugin skills are in sync and validates read-only gate planning.
+- No automatic deployment, network dependency install, secret collection, token-cost tracking or arbitrary parallel agent runtime included.
+
 # Changelog
 
-## 0.2.0 — 2026-11-21
+## 0.3.0 — Polyglot expansion
 
-### Added
+- Expanded from 20 to **52** specialist roles and from 14 to **34** workflow skills, including JVM, Go, Rust, C/C++, .NET, mobile, desktop, games, cloud, data/ML and functional/scientific ecosystems.
+- Added **25 curated profiles** covering language stacks and engineering domains; kept the existing profile names for backward compatibility.
+- Added bounded, offline filename-based `fq inspect --target PATH [--json]`, with ignored generated directories and symlink skipping.
+- Added `fq init --profile auto` to select and store a concrete profile from project markers.
+- Added context-aware `fq recommend ... --target PATH [--profile auto]` and explicit language-specialist overrides to avoid assigning Python to unrelated projects.
+- Added cross-language regression fixtures and documentation for native toolchain boundaries.
+- Existing v0.1/v0.2 installation manifests remain supported; no automatic profile switch, no execution of user code, no external API calls.
 
-- Curated project installation profiles: `python`, `web`, `security`, `infra`, `full`.
-- `forgequorum profiles`, `status`, and offline bilingual `recommend` CLI commands.
-- JSON diagnostics for `doctor` and `status`, suitable for CI/automation.
-- Explicit profile metadata in manifest format 2, with compatibility for v0.1.0 manifests.
-- Ten regression tests for profiles, upgrade, task routing, and manifest tampering.
+## 0.2.1 — Windows fixes
 
-### Security / compatibility
+- Fixed Windows-specific compatibility issues and added regression checks.
 
-- Strict allowlist for paths in editable manifests: a forged manifest can no longer enlist arbitrary project files for removal.
-- Changes to a previously installed profile require explicit uninstall first; no silent destructive profile migration.
-- The Python installer remains dependency-free at runtime, and agent execution still belongs to Codex.
+## 0.2.0 — Profiles and offline routing
 
-## 0.1.0 — 2026-11-21
+- Added curated profiles, deterministic recommendations, status JSON, manifest allowlisting and additional regression tests.
 
-### Added
+## 0.1.0 — First preview
 
-- Original Codex-native library of 20 specialized subagent roles.
-- 14 procedural skills for feature delivery, testing, security, reliability and release readiness.
-- Project-scoped `forgequorum init`, `doctor`, `list` and `uninstall` commands.
-- Idempotent installer with dry-run, conflict preflight and SHA-256 manifest.
-- Preservation of existing project `AGENTS.md` and Codex configuration.
-- Unit test suite, cross-platform GitHub Actions workflow, Russian and English docs.
-
-### Known limitations
-
-- Runtime agent execution is handled by Codex, not by the Python CLI.
-- Installing into the current user's global Codex config is not yet available.
-- Existing Codex config must be manually merged with the generated example.
-- No live Codex end-to-end run was performed in the build environment.
+- Initial Codex-native role pack, reusable skills and safe installer.

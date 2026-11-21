@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-VERSION = "0.2.1"
+VERSION = "0.3.0"
 
 
 @dataclass(frozen=True)
@@ -67,10 +67,16 @@ SKILLS: tuple[Skill, ...] = (
     Skill("pr-preflight", "Prepare a small, evidence-backed pull request with safe review boundaries.", "Before opening a PR or submitting a patch for review.", ("Check git status and identify unrelated user changes without discarding them.", "Summarize diff and verify acceptance criteria are addressed.", "Run relevant formatter, lint, typing and tests or explain omissions.", "Audit accidental credentials, binary artifacts and dependency changes.", "Check compatibility and rollout considerations.", "Draft an informative title/body with reproduction and testing details.", "Never push, merge or force-update without explicit approval."), "PR summary, actual checks and outstanding risks with no invented CI results.", "Use reviewer as independent check; route security-sensitive changes to security-auditor."),
 )
 
+from .polyglot import ADDITIONAL_AGENTS, ADDITIONAL_SKILLS
+
+AGENTS += ADDITIONAL_AGENTS
+SKILLS += ADDITIONAL_SKILLS
+
 AGENTS_BLOCK = """<!-- forge-quorum:start -->
 ## ForgeQuorum: engineering delegation policy
 
-This project uses Codex-native agents in `.codex/agents/` and skills in `.agents/skills/`.
+This project uses stack-specific Codex agents in `.codex/agents/` and skills in `.agents/skills/`.
+Inspect the actual repository language versions and build tools; do not assume Python.
 Use the `route-task` skill for complex or multi-domain work; use the smallest necessary
 number of agents. For small fixes, work directly. Avoid two write-capable agents
 editing the same files concurrently. Delegate exploration and review as read-only work.

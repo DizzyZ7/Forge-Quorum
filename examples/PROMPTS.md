@@ -1,55 +1,48 @@
-# Practical Codex prompts
+# Multi-stack prompts
 
-## 1. Full-stack feature
+Use these inside a Codex session **after** installing a suitable ForgeQuorum profile.
 
-```text
-$build-feature Implement user profile editing with FastAPI and a React form.
-Preserve API compatibility. Ask repo-explorer to map the current implementation;
-only delegate independent backend/frontend files. Include accessible empty/loading/error
-states, validation, tests and a short final report with executed test commands.
-```
-
-## 2. Independent review
+## TypeScript + Go backend
 
 ```text
-$deep-review Review the changes against main for concurrency, authorization,
-backward compatibility, and missing regression tests. Use independent read-only
-review roles when appropriate. Report findings with file/line evidence.
+$polyglot-feature Implement a TypeScript frontend consuming a Go API.
+Inspect actual package versions, define the API contract, assign separate frontend
+and backend file ownership, test both sides and report unavailable checks.
 ```
 
-## 3. Telegram bot / Redis
+## Android / Flutter
 
 ```text
-$automation-hardening Audit the queue worker: the same media URL can arrive
-repeatedly, and redis memory is limited. Design dedupe keys, bounded jobs,
-resource limits, cancellation and correct crash recovery. Implement and test
-repeated delivery, failed downloads and worker restart.
+$build-mobile Add offline task editing to this Flutter application.
+Consider lifecycle, state restoration, permissions, accessibility and upgrades.
+Use device-specific verification only when a simulator or device is available.
 ```
 
-## 4. Security audit
+## Rust worker
 
 ```text
-$security-gate Review this project's authorization, public endpoints and webhook
-signatures. Never print secrets. Do not make external offensive requests. Return
-prioritized issues, safe reproductions and recommended tests.
+$ship-rust-crate Create a cancellable worker with bounded concurrency.
+Use existing Cargo conventions; check error behavior, race-prone transitions
+and shutdown paths. Provide tests and real cargo results.
 ```
 
-## 5. Production migration preparation (no execution)
+## JVM business service
 
 ```text
-$data-migration Prepare an expand-contract PostgreSQL migration for renaming
-account_id to customer_id without downtime. Provide a backfill, read/write
-compatibility window, verification queries, abort conditions and rollback.
-Do not execute production DDL.
+$ship-jvm-service Add an idempotent Spring Boot endpoint with transaction
+boundaries, authentication checks and negative tests. Keep backward compatibility.
 ```
 
-## CLI task recommendation (v0.2.0)
+## Security-first infrastructure plan
 
-```bash
-fq recommend "Исправь повторную доставку событий в Redis" --profile python --json
-fq recommend "Build a responsive React dashboard" --profile web
-fq recommend "Audit API authorization" --profile security --max-agents 2
+```text
+$infrastructure-plan Review this Terraform change without applying anything.
+List resources and IAM deltas, blast radius, cost and rollback criteria.
 ```
 
-These are offline heuristic suggestions. Paste the generated `$skill` prompt into a
-Codex session to actually delegate work.
+## ML / RAG
+
+```text
+$ml-lifecycle Implement a retrieval pipeline with a reproducible evaluation set,
+real baseline metrics and leakage checks. Don't invent model quality or costs.
+```

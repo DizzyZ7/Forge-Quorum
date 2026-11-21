@@ -105,8 +105,8 @@ class InstallerTests(unittest.TestCase):
         self.assertFalse((self.root / '.codex/config.toml').exists())
 
     def test_toml_all_agents_are_valid(self):
-        self.assertEqual(len(AGENTS), 20)
-        self.assertEqual(len(SKILLS), 14)
+        self.assertGreaterEqual(len(AGENTS), 50)
+        self.assertGreaterEqual(len(SKILLS), 30)
         self.assertEqual(len(set(a.name for a in AGENTS)), len(AGENTS))
         self.assertEqual(len(set(s.name for s in SKILLS)), len(SKILLS))
         for name, content in payload().items():

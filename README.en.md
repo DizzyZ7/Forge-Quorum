@@ -4,16 +4,16 @@
 
 An original Codex-native multi-agent engineering pack: 20 role-specific subagents, 14 reusable skills, and a safe, standard-library-based installer.
 
-> v0.1.0 is an installable configuration pack, not an independent API orchestration service. Codex itself runs native subagents. The presence of an agent definition does not guarantee that Codex will spawn that agent for every task.
+> v0.2.0 is an installable configuration pack, not an independent API orchestration service. Codex itself runs native subagents. The presence of an agent definition does not guarantee that Codex will spawn that agent for every task.
 
 ## Install
 
 Requires Python 3.11+ and Codex for actual agent execution.
 
 ```bash
-python -m pip install -e .
-forgequorum init --target ../your-project --dry-run
-forgequorum init --target ../your-project
+python -m pip install "git+https://github.com/DizzyZ7/Forge-Quorum.git"
+forgequorum init --target ../your-project --profile python --dry-run
+forgequorum init --target ../your-project --profile python
 forgequorum doctor --target ../your-project
 ```
 
@@ -36,10 +36,15 @@ $route-task Implement a safe password reset flow with tests and independent secu
 
 ```bash
 forgequorum list
-forgequorum init --target PATH [--dry-run]
-forgequorum doctor --target PATH
+forgequorum profiles                          # python, web, security, infra, full
+forgequorum init --target PATH --profile web [--dry-run]
+forgequorum status --target PATH --json        # CI-friendly diagnostics
+forgequorum doctor --target PATH --json
+forgequorum recommend "Fix Redis webhook deduplication" --json
 forgequorum uninstall --target PATH [--dry-run]
 ```
+
+Profiles ship only the relevant agents/skills. A reinstall retains the selected profile; switch profiles by uninstalling first. Legacy v0.1.0 installs are recognized as `full`. The `recommend` command uses transparent offline keywords; **it does not run agents or call an API**. The manifest now refuses paths outside an explicit allowlist to prevent tampering-based deletion of unrelated files.
 
 For the roles, skills, security notes, architecture, roadmap, and actual limitations see the [Russian README](README.md) and [ROADMAP](ROADMAP.md).
 

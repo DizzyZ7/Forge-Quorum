@@ -15,6 +15,7 @@ import tomllib
 from .registry import AGENTS, AGENTS_BLOCK, CONFIG, SKILLS, VERSION, payload
 from .profiles import PROFILES, profile_names
 from .routing import recommend
+from .stack import detect_stack
 
 MANIFEST = Path('.forgequorum/manifest.json')
 START = '<!-- forge-quorum:start -->'
@@ -106,7 +107,8 @@ def plan_install(root: Path, profile: str | None = None) -> tuple[dict[Path, str
     """Preflight every managed write; never overwrite unowned or edited files."""
     previous = load_manifest(root)
     old_profile = previous.get('profile', 'full') if previous else None
-    selected_profile = profile or old_profile or 'full'
+    # Resolve auto to a concrete profile before recording it in the manifest.
+    selected_profile = (old_profile or detect_stack(root)['recommended_profile']) if profile == 'auto' else (profile or old_profile or 'full')
     if selected_profile not in profile_names():
         raise InstallError(f'Unknown profile: {selected_profile}')
     if old_profile is not None and selected_profile != old_profile:
@@ -342,15 +344,19 @@ def parser() -> argparse.ArgumentParser:
         if command in ('init', 'uninstall'):
             cmd.add_argument('--dry-run', action='store_true')
         if command == 'init':
-            cmd.add_argument('--profile', choices=profile_names(), default=None,
-                             help='One of python, web, security, infra, full (defaults to full)')
+            cmd.add_argument('--profile', choices=profile_names() + ('auto',), default=None,
+                             help='Choose a language/role profile or auto-detect from filenames')
         if command in ('doctor', 'status'):
             cmd.add_argument('--json', action='store_true', help='Machine-readable result')
     sub.add_parser('list', help='List bundled agents and workflow skills')
     sub.add_parser('profiles', help='List curated agent/skill profiles')
+    inspect = sub.add_parser('inspect', help='Offline filename-based project stack inspection')
+    inspect.add_argument('--target', type=Path, default=Path('.'))
+    inspect.add_argument('--json', action='store_true')
     rec = sub.add_parser('recommend', help='Recommend a workflow and agent team offline')
     rec.add_argument('task', help='Describe the engineering task (English or Russian)')
-    rec.add_argument('--profile', choices=profile_names(), default='full')
+    rec.add_argument('--profile', choices=profile_names() + ('auto',), default='full')
+    rec.add_argument('--target', type=Path, default=None, help='Optional project directory to detect stack from filenames')
     rec.add_argument('--max-agents', type=int, default=3)
     rec.add_argument('--json', action='store_true')
     return p
@@ -372,10 +378,32 @@ def main(argv: list[str] | None = None) -> int:
                 print(f'  full       All {len(AGENTS)} agents and {len(SKILLS)} skills')
             else:
                 print(f'  {name:10} {PROFILES[name].description}')
+        print('  auto       Detect the repository stack from filenames; no project code is executed')
+        return 0
+    if args.command == 'inspect':
+        try:
+            report = detect_stack(args.target.absolute())
+        except ValueError as e:
+            print(f'ERROR: {e}', file=sys.stderr)
+            return 1
+        if args.json:
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+        else:
+            print(f"Recommended profile: {report['recommended_profile']}")
+            print(f"Inspected: {report['files_inspected']} files (truncated: {report['scan_truncated']})")
+            for lang in report['languages']:
+                print(f"  {lang['name']:14} score={lang['score']:4} evidence={', '.join(lang['evidence'])}")
+            print(report['note'])
         return 0
     if args.command == 'recommend':
         try:
-            decision = recommend(args.task, args.profile, args.max_agents)
+            stack = detect_stack(args.target.absolute()) if args.target is not None else None
+            if args.profile == 'auto' and stack is None:
+                raise ValueError('--profile auto requires --target')
+            effective_profile = stack['recommended_profile'] if args.profile == 'auto' else args.profile
+            decision = recommend(args.task, effective_profile, args.max_agents, stack)
+            if stack is not None:
+                decision['stack'] = stack
         except ValueError as e:
             print(f'ERROR: {e}', file=sys.stderr)
             return 1

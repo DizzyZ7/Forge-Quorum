@@ -21,6 +21,8 @@ from .session import context_summary, create_checkpoint
 from .swarm import (SwarmError, plan, create_job, inspect_job, list_jobs,
                     execute_job, cleanup_job, run_batch, review_job)
 from .swarm_control import recovery, request_cancel, conflicts, verify_job, usage_report
+from .handoff import handoff
+from .scheduler import status as scheduler_status, configure as scheduler_configure, release as scheduler_release
 
 MANIFEST = Path('.forgequorum/manifest.json')
 START = '<!-- forge-quorum:start -->'
@@ -376,9 +378,19 @@ def parser() -> argparse.ArgumentParser:
     checkpoint.add_argument('--target', type=Path, default=Path('.'))
     checkpoint.add_argument('--note', default='', help='Optional user-authored, non-sensitive note (max 4000 chars)')
     hook = sub.add_parser('hook-context', help='Opt-in Codex SessionStart hook (read-only; accepts JSON stdin)')
+    scheduler = sub.add_parser('scheduler', help='Cross-process Codex admission and reserved-token budgets')
+    scheduler_sub = scheduler.add_subparsers(dest='scheduler_command', required=True)
+    scheduler_sub.add_parser('status', help='Show global slots and conservative token ledger')
+    sc = scheduler_sub.add_parser('configure', help='Change global policy only when no jobs run')
+    sc.add_argument('--max-running', type=int, default=2)
+    sc.add_argument('--daily-tokens', type=int, default=0)
+    sc.add_argument('--confirm', action='store_true')
+    sr = scheduler_sub.add_parser('release', help='Manually release abandoned slot after PID inspection')
+    sr.add_argument('ticket', help='32-character scheduler ticket')
+    sr.add_argument('--confirm', action='store_true')
     swarm = sub.add_parser('swarm', help='Plan and execute opt-in Codex jobs in isolated Git worktrees')
     swarm_sub = swarm.add_subparsers(dest='swarm_command', required=True)
-    for name in ('plan', 'start', 'run', 'status', 'list', 'cleanup', 'batch', 'review', 'cancel', 'recover', 'conflicts', 'verify', 'usage'):
+    for name in ('plan', 'start', 'run', 'status', 'list', 'cleanup', 'batch', 'review', 'cancel', 'recover', 'conflicts', 'verify', 'usage', 'handoff'):
         cmd = swarm_sub.add_parser(name)
         cmd.add_argument('--target', type=Path, default=Path('.'))
         cmd.add_argument('--json', action='store_true')
@@ -396,12 +408,17 @@ def parser() -> argparse.ArgumentParser:
         if name == 'verify':
             cmd.add_argument('--run', action='store_true', help='Execute selected project tests in the job worktree')
             cmd.add_argument('--timeout', type=int, default=120)
-        if name == 'conflicts':
+        if name in ('conflicts', 'handoff'):
             cmd.add_argument('job_ids', nargs='+', help='Between 2 and 12 worktree job IDs')
         if name == 'usage':
             cmd.add_argument('job_ids', nargs='*', help='Selected jobs or omit for all jobs')
         if name == 'cleanup':
             cmd.add_argument('--confirm', action='store_true', help='Remove only a clean worktree; preserve its branch')
+        if name in ('run', 'batch'):
+            cmd.add_argument('--reserve-tokens', type=int, default=0,
+                             help='Per-job token reservation used by the scheduler; not a hard spending cap')
+            cmd.add_argument('--wait-seconds', type=int, default=120 if name == 'batch' else 0,
+                             help='Wait 0..300s for a global slot')
         if name == 'batch':
             cmd.add_argument('job_ids', nargs='+', help='Up to 12 distinct prepared job IDs')
             cmd.add_argument('--execute', action='store_true', help='Authorize Codex execution for each supplied job')
@@ -412,6 +429,19 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
+    if args.command == 'scheduler':
+        try:
+            if args.scheduler_command == 'status':
+                result = scheduler_status()
+            elif args.scheduler_command == 'configure':
+                result = scheduler_configure(args.max_running, args.daily_tokens, args.confirm)
+            else:
+                result = scheduler_release(args.ticket, args.confirm)
+        except (SwarmError, OSError, ValueError) as exc:
+            print(f'ERROR: {exc}', file=sys.stderr)
+            return 1
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
     if args.command == 'swarm':
         try:
             root = args.target.absolute()
@@ -420,17 +450,19 @@ def main(argv: list[str] | None = None) -> int:
             elif args.swarm_command == 'start':
                 result = create_job(root, args.task, args.profile, args.max_agents)
             elif args.swarm_command == 'run':
-                result = execute_job(root, args.job_id, args.timeout, args.execute)
+                result = execute_job(root, args.job_id, args.timeout, args.execute, args.reserve_tokens, args.wait_seconds)
             elif args.swarm_command == 'status':
                 result = inspect_job(root, args.job_id)
             elif args.swarm_command == 'list':
                 result = list_jobs(root)
             elif args.swarm_command == 'batch':
-                result = run_batch(root, args.job_ids, args.timeout, args.max_parallel, args.execute)
+                result = run_batch(root, args.job_ids, args.timeout, args.max_parallel, args.execute, args.reserve_tokens, args.wait_seconds)
             elif args.swarm_command == 'review':
                 result = review_job(root, args.job_id)
             elif args.swarm_command == 'conflicts':
                 result = conflicts(root, args.job_ids)
+            elif args.swarm_command == 'handoff':
+                result = handoff(root, args.job_ids)
             elif args.swarm_command == 'usage':
                 result = usage_report(root, args.job_ids)
             elif args.swarm_command == 'cancel':

@@ -163,7 +163,8 @@ def _check_runnable(root: Path, common: Path, job_id: str) -> dict:
 
 
 def run_batch(target: Path, job_ids: list[str], timeout: int = 900,
-              max_parallel: int = 2, execute: bool = False) -> dict:
+              max_parallel: int = 2, execute: bool = False,
+              reserve_tokens: int = 0, wait_seconds: int = 120) -> dict:
     """Run *independent prepared jobs* with bounded per-invocation concurrency.
 
     Does not enforce a global token or process budget across different CLI runs.
@@ -192,7 +193,8 @@ def run_batch(target: Path, job_ids: list[str], timeout: int = 900,
 
     def _one(job_id: str) -> dict:
         try:
-            outcome = execute_job(root, job_id, timeout=timeout, execute=True)
+            outcome = execute_job(root, job_id, timeout=timeout, execute=True,
+                                  reserve_tokens=reserve_tokens, wait_seconds=wait_seconds)
             return {"id": job_id, "state": outcome["state"],
                     "last_execution": outcome.get("last_execution")}
         except (SwarmError, OSError, ValueError) as exc:
@@ -459,7 +461,8 @@ def _codex_exec(workspace: Path, prompt: str, timeout: int) -> tuple[str, int, i
         return status, code, count, usage
 
 
-def execute_job(target: Path, job_id: str, timeout: int = 900, execute: bool = False) -> dict:
+def execute_job(target: Path, job_id: str, timeout: int = 900, execute: bool = False,
+                reserve_tokens: int = 0, wait_seconds: int = 0) -> dict:
     if not 30 <= timeout <= 3600:
         raise SwarmError("timeout must be between 30 and 3600 seconds")
     root, common = _repo(target)
@@ -474,30 +477,43 @@ def execute_job(target: Path, job_id: str, timeout: int = 900, execute: bool = F
         job = _check_runnable(root, common, job_id)
         if not shutil.which("codex"):
             raise SwarmError("Codex CLI is missing from PATH. Install and authenticate it first.")
-        job["state"] = "running"
-        _write_job(common, job)
+        from .scheduler import claim, settle
+        ticket = claim(str(root), job_id, reserve_tokens=reserve_tokens,
+                       wait_seconds=wait_seconds)
         started = monotonic()
+        reported_tokens = None
         try:
-            outcome = _codex_exec(workspace, _prompt(job), timeout)
-            status, code, events = outcome[:3]
-            usage = outcome[3] if len(outcome) > 3 else {
-                'source': 'not-reported', 'input_tokens': 0, 'cached_input_tokens': 0,
-                'output_tokens': 0, 'total_tokens': 0, 'partial': status != 'completed'}
-            job["state"] = status
-            job["last_execution"] = {"at": _now(), "exit_code": code, "events_seen": events,
-                                     "timeout_seconds": timeout, "usage": usage,
-                                     "elapsed_seconds": round(monotonic() - started, 3)}
-        except Exception:
-            job["state"] = "failed"
-            job["last_execution"] = {"at": _now(), "exit_code": None, "events_seen": 0,
-                                     "elapsed_seconds": round(monotonic() - started, 3),
-                                     "error": "Codex launch error"}
+            job["state"] = "running"
             _write_job(common, job)
-            raise
-        _write_job(common, job)
-        marker = _job_dir(common) / f"{job_id}.cancel"
-        if marker.exists() and not marker.is_symlink():
-            marker.unlink(missing_ok=True)
+            try:
+                outcome = _codex_exec(workspace, _prompt(job), timeout)
+                status, code, events = outcome[:3]
+                usage = outcome[3] if len(outcome) > 3 else {
+                    'source': 'not-reported', 'input_tokens': 0, 'cached_input_tokens': 0,
+                    'output_tokens': 0, 'total_tokens': 0, 'partial': status != 'completed'}
+                if (isinstance(usage, dict) and usage.get('source') == 'codex-jsonl'
+                        and type(usage.get('total_tokens')) is int
+                        and 0 <= usage['total_tokens'] <= 10**12):
+                    reported_tokens = usage['total_tokens']
+                job["state"] = status
+                job["last_execution"] = {"at": _now(), "exit_code": code, "events_seen": events,
+                                         "timeout_seconds": timeout, "usage": usage,
+                                         "elapsed_seconds": round(monotonic() - started, 3)}
+            except Exception:
+                job["state"] = "failed"
+                job["last_execution"] = {"at": _now(), "exit_code": None, "events_seen": 0,
+                                         "elapsed_seconds": round(monotonic() - started, 3),
+                                         "error": "Codex launch error"}
+                _write_job(common, job)
+                raise
+            _write_job(common, job)
+            marker = _job_dir(common) / f"{job_id}.cancel"
+            if marker.exists() and not marker.is_symlink():
+                marker.unlink(missing_ok=True)
+        finally:
+            # On missing usage charge the entire reserved amount. Even a failed
+            # launch never silently frees reserved tokens.
+            settle(ticket, reported_tokens=reported_tokens)
     return inspect_job(root, job_id)
 
 

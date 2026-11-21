@@ -47,3 +47,13 @@ python tools/evaluate_routing.py
 - Maintain release notes and user examples against actual tested behavior.
 
 [Orchestration guide](ORCHESTRATION.md) · For upcoming features, see [ROADMAP.md](../ROADMAP.md).
+
+
+## v0.8.0 additions
+
+| Area | Available | Limitation |
+|---|---|---|
+| Global process admission | `fq scheduler` coordinates ForgeQuorum Codex runs for one OS user | Does not observe unrelated clients, hosts or users |
+| Token reservations | Optional UTC daily token reservation ledger, reconciled to reported usage | Not a real-time hard cap, actual billing, or a pricing estimator |
+| Safe handoff | `fq swarm handoff` checks completed jobs, verification freshness, clean commits, base divergence and overlapping paths | Advisory only; cannot rule out semantic conflicts or merge automatically |
+| Recovery | Operator-confirmed global ticket release after PID exit | Does not kill processes, remove job locks or refund unknown usage |

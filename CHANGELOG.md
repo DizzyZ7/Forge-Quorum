@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.0 — Cross-process scheduler and conservative handoff
+
+- Added global per-user Codex admission slots across ForgeQuorum CLI invocations with fail-closed, manually recoverable claims.
+- Added opt-in UTC daily token reservation ledger and conservative reconciliation based on Codex-reported totals; not a live or monetary cap.
+- Added `fq scheduler status/configure/release` with explicit confirmations and process-owner checks before manual release.
+- Added `fq swarm handoff` for read-only clean-worktree, verification, base-head and path-overlap preflight. No automatic merges.
+- Added cross-process and concurrency regression tests; no transcriptions, auto-push, background daemon or external service.
+
+
 ## 0.7.0 — Operational controls and evidence-based verification
 
 - Added `fq swarm cancel` with explicit confirmation, cooperative interruption and preservation of worktree changes.

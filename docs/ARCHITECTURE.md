@@ -36,3 +36,8 @@ A trivial task should use zero extra agents. A typical cross-cutting feature sho
 ## v0.7 operational controls
 
 `src/forgequorum/swarm_control.py` implements read-only cross-worktree path reports, explicit test gates, last-run JSONL token summaries, cooperative cancel requests and conservative recovery. `swarm.py` owns process startup/termination and job locks. The unit of isolation remains a Git worktree, **not** a security sandbox for tools, hooks, tests or external services. No unattended merge, deploy or process recovery is attempted.
+
+
+## Cross-process admission (v0.8.0)
+
+`src/forgequorum/scheduler.py` stores one policy and a conservative token ledger under the current user's local scheduler directory. Atomic directory creation serializes all admission/settlement updates. Running jobs claim a global slot in addition to their per-job `.lock`. Failed/abandoned claims are deliberately not garbage-collected automatically; release requires explicit operator confirmation and PID exit. This file-based mechanism is local-host scope and makes no monetary spending guarantees. `src/forgequorum/handoff.py` offers read-only multi-job verification preflight; Git merging remains manual.

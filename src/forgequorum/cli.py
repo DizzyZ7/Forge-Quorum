@@ -83,14 +83,22 @@ def load_manifest(root: Path) -> dict | None:
     if data['format'] == 1 and 'profile' in data:
         raise InstallError('Unsupported profile in legacy manifest')
     allowed = set(payload()) | {'.codex/config.toml', '.forgequorum/config.example.toml'}
+    normalized_files: dict[str, str] = {}
     for rel, sha in data['managed_files'].items():
+        # v0.1 on Windows wrote config.toml with backslash separators.
+        # Normalize those legacy paths before applying the strict allowlist.
+        if not isinstance(rel, str):
+            raise InstallError(f'Invalid managed path: {rel!r}')
+        name = rel.replace('\\', '/')
         # This allowlist is essential: uninstall must NEVER trust arbitrary paths
         # from an editable JSON manifest, even if their digest matches.
-        if not isinstance(rel, str) or rel not in allowed:
-            raise InstallError(f'Manifest contains an unrecognized managed path: {rel!r}')
+        if name not in allowed or name in normalized_files:
+            raise InstallError(f'Manifest contains an unrecognized or duplicate managed path: {rel!r}')
         if not isinstance(sha, str) or re.fullmatch(r'[0-9a-f]{64}', sha) is None:
             raise InstallError(f'Invalid digest for manifest entry: {rel!r}')
-        assert_safe_path(root, Path(rel))
+        assert_safe_path(root, Path(name))
+        normalized_files[name] = sha
+    data['managed_files'] = normalized_files
     return data
 
 
@@ -108,10 +116,10 @@ def plan_install(root: Path, profile: str | None = None) -> tuple[dict[Path, str
     config = Path('.codex/config.toml')
     if (root / config).exists() and not (root / config).is_file():
         raise InstallError('Config path exists but is not a file')
-    if (root / config).exists() and str(config) not in owned:
+    if (root / config).exists() and config.as_posix() not in owned:
         additions['.forgequorum/config.example.toml'] = CONFIG
     else:
-        additions[str(config)] = CONFIG
+        additions[config.as_posix()] = CONFIG
     modifications: dict[Path, str] = {}
     tracked: dict[str, str] = {}
     skipped: list[str] = []

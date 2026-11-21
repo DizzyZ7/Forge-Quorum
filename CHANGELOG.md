@@ -1,21 +1,5 @@
 # Changelog
 
-## 0.2.0 — 2026-11-21
-
-### Added
-
-- Curated project installation profiles: `python`, `web`, `security`, `infra`, `full`.
-- `forgequorum profiles`, `status`, and offline bilingual `recommend` CLI commands.
-- JSON diagnostics for `doctor` and `status`, suitable for CI/automation.
-- Explicit profile metadata in manifest format 2, with compatibility for v0.1.0 manifests.
-- Ten regression tests for profiles, upgrade, task routing, and manifest tampering.
-
-### Security / compatibility
-
-- Strict allowlist for paths in editable manifests: a forged manifest can no longer enlist arbitrary project files for removal.
-- Changes to a previously installed profile require explicit uninstall first; no silent destructive profile migration.
-- The Python installer remains dependency-free at runtime, and agent execution still belongs to Codex.
-
 ## 0.1.0 — 2026-11-21
 
 ### Added

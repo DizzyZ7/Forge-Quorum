@@ -59,6 +59,29 @@ class Version02Tests(unittest.TestCase):
         self.assertEqual(result['profile'], 'full')
         self.assertEqual(json.loads(path.read_text())['format'], 2)
 
+    def test_legacy_windows_manifest_paths_are_safely_normalized(self):
+        install(self.root)
+        path = self.root / '.forgequorum/manifest.json'
+        data = json.loads(path.read_text())
+        data['format'] = 1
+        data.pop('profile', None)
+        data['managed_files']['.codex\\config.toml'] = data['managed_files'].pop('.codex/config.toml')
+        path.write_text(json.dumps(data))
+        normalized = load_manifest(self.root)
+        self.assertIn('.codex/config.toml', normalized['managed_files'])
+        self.assertNotIn('.codex\\config.toml', normalized['managed_files'])
+        self.assertEqual(install(self.root)[0], 1)  # normalize and upgrade manifest only
+        self.assertTrue(status(self.root)['ok'])
+
+    def test_colliding_separators_in_manifest_refused(self):
+        install(self.root)
+        path = self.root / '.forgequorum/manifest.json'
+        data = json.loads(path.read_text())
+        data['managed_files']['.codex\\config.toml'] = data['managed_files']['.codex/config.toml']
+        path.write_text(json.dumps(data))
+        with self.assertRaisesRegex(InstallError, 'duplicate managed path'):
+            uninstall(self.root)
+
     def test_manifest_path_injection_refused_before_delete(self):
         (self.root / 'important.txt').write_text('must remain', encoding='utf8')
         install(self.root)
@@ -67,9 +90,9 @@ class Version02Tests(unittest.TestCase):
         import hashlib
         data['managed_files']['important.txt'] = hashlib.sha256(b'must remain').hexdigest()
         manifest.write_text(json.dumps(data))
-        with self.assertRaisesRegex(InstallError, 'unrecognized managed path'):
+        with self.assertRaisesRegex(InstallError, 'unrecognized or duplicate managed path'):
             uninstall(self.root)
-        with self.assertRaisesRegex(InstallError, 'unrecognized managed path'):
+        with self.assertRaisesRegex(InstallError, 'unrecognized or duplicate managed path'):
             install(self.root)
         self.assertEqual((self.root / 'important.txt').read_text(), 'must remain')
         self.assertTrue((self.root / '.codex/agents/architect.toml').exists())

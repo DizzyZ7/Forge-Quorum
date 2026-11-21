@@ -10,19 +10,14 @@
 - [x] Unit tests and GitHub Actions configuration
 - [x] English + Russian getting-started documentation
 
-## v0.2.0 — shipped: safety, profiles and offline routing
-
-- [x] Curated project profiles (`python`, `web`, `security`, `infra`, `full`)
-- [x] `status` / `doctor --json` for CI-friendly diagnostics
-- [x] Local Russian/English keyword-based task suggestions (`recommend`)
-- [x] Manifest path allowlist and legacy manifest upgrade tests
-
-## v0.2.x — remaining reliability & distribution
+## v0.2 — reliability & distribution
 
 - [ ] Per-user installation (`~/.codex/agents` and `~/.agents/skills`) with strict conflict handling
+- [ ] Selective profiles: `python`, `web`, `security`, `infra`, `full`
 - [ ] Transaction journal and recovery after forced interruption
 - [ ] Release build checks and signed checksums
 - [ ] Windows/macOS/Linux smoke test with a pinned Codex CLI version
+- [ ] Structured `forgequorum doctor --json` for CI integrations
 
 ## v0.3 — deeper agent orchestration
 

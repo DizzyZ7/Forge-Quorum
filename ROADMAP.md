@@ -1,26 +1,21 @@
 # ForgeQuorum roadmap
 
-## Shipped in v0.4.0
+**Shipped through v0.5.0:** 52 role definitions, 39 skills, 25 profiles, plugin exports, offline stack/routing/verification, local context checkpoints, opt-in `codex exec` jobs and isolated Git worktrees. Real subagent scheduling remains a Codex runtime responsibility.
 
-- Independently authored Codex Agent Plugins package with synchronized skills.
-- Project-scoped agent installation, role/stack routing, checkable offline routing fixtures.
-- Read-only, multi-language test plans and explicitly authorized execution.
-- Local file-name context summaries and opt-in private checkpoints; opt-in SessionStart template.
+## Next priorities (not shipped)
 
-## Next milestones — NOT implemented
-
-1. End-to-end plugin installation smoke tests in supported Codex CLI/desktop versions, with version matrix and compatibility report.
-2. Robust opt-in lifecycle hook library with explicit trust review, bounded outputs, cross-platform testing.
-3. Persistent workflow state and human-reviewed memory/lesson promotion, no automatic transcript harvesting.
-4. Agent scheduler with Codex-backed real execution, strict file ownership and isolated git worktrees.
-5. Evidence-based eval harness for whole multi-agent runs and measured token/cost budget (requires approved runtime integration).
-6. Language-specific verification presets covering more frameworks and SDKs, without arbitrary command injection.
-7. Public plugin submission preparation, policy review, security checks, demo project and installation docs.
+1. **Stack adapters:** project-specific test/build commands for JS/TS, Go, Rust, Java, C#, Flutter, PHP and C++ with a user-reviewed plan and explicit execution authorization.
+2. **Composite profiles:** support multi-package repositories without installing a huge `full` profile; selectable role sets, multiple matching stacks and exact manifests.
+3. **Advanced orchestration:** optional Codex SDK/app-server integration for streamed events, bounded parallelism, cancellation, permission propagation and crash recovery.
+4. **Execution budgets:** token/runtime caps, cancellation, measurable traces and human checkpoints.
+5. **Worktree coordination:** add ownership-aware diff review, merge previews and conflict handling to the shipped isolated job foundation.
+6. **Quality gates:** verified build/test/static/security results, provenance, baseline snapshots and rollback plans.
+7. **Packaging and discovery:** signed cross-platform binaries, verified installation paths, demos and contribution templates.
 
 ## Principles
 
-- Portability across languages and operating systems, not Python-only development.
-- Never confuse an agent configuration with a separately trained model or an executing worker.
-- No surprise side effects: dry-run/planning by default, opt-in execution and deployment.
-- Honest verification: only call a check passed when it actually ran.
-
+- Keep offline configuration and actual agent execution separate; never imply that a generated TOML file executed an agent.
+- Prefer fewer capable specialists to unbounded fan-out.
+- Never run newly detected commands or apply infrastructure changes automatically.
+- Preserve existing user files and reject unsafe conflicts.
+- Support more languages by meaningful, tested behavior—not a marketing count alone.

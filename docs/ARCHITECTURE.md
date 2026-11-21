@@ -5,7 +5,8 @@
 - **CLI installer** (`src/forgequorum/cli.py`): deterministic preflight, atomic file replacement, manifest, doctor and uninstall.
 - **Content registry** (`src/forgequorum/registry.py`): independent, original role and workflow definitions.
 - **Codex runtime** (external): reads `.codex/agents`, `.agents/skills`, `AGENTS.md` and trusted `.codex/config.toml`; executes agents when appropriate.
-- **Orchestration policy** (`route-task` skill): planning and fan-out recommendations to the parent agent; no separate coordinator daemon.
+- **Orchestration policy** (`route-task` skill): planning and fan-out recommendations to Codex.
+- **Isolated job runner** (`src/forgequorum/swarm.py`): opt-in `codex exec`, Git worktree creation, private job metadata, non-destructive review/cleanup; no coordinator daemon.
 
 ## Agent lifecycle
 
@@ -20,7 +21,9 @@
 
 Agent instructions are untrusted input to the model execution context; they **do not** enforce filesystem isolation. Always rely on actual Codex sandbox/permission controls. MCP connectors may grant broader privileges, and must be configured and approved by the user. No plugin or connector is installed by this project.
 
-The CLI does not execute user-project commands or use network calls. It only creates known text files. No authentication credentials are stored. The manifest includes hashes, file paths and package version only; it does not include existing project instructions. Collisions halt installation.
+Ordinary CLI commands do not run project code or use network APIs. Explicit `fq verify --run` and `fq swarm run --execute` **do** run external commands and must be reviewed. The runner does not store raw Codex transcripts or authentication credentials. The manifest includes hashes, file paths and package version only; it does not include existing project instructions. Collisions halt installation.
+
+See [ORCHESTRATION.md](ORCHESTRATION.md) for Git worktree isolation and runtime trust limits.
 
 ## Compatibility surface
 

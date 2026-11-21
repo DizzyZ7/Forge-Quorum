@@ -18,6 +18,7 @@ from .routing import recommend
 from .stack import detect_stack
 from .quality import run_verification
 from .session import context_summary, create_checkpoint
+from .swarm import SwarmError, plan, create_job, inspect_job, list_jobs, execute_job, cleanup_job
 
 MANIFEST = Path('.forgequorum/manifest.json')
 START = '<!-- forge-quorum:start -->'
@@ -373,11 +374,51 @@ def parser() -> argparse.ArgumentParser:
     checkpoint.add_argument('--target', type=Path, default=Path('.'))
     checkpoint.add_argument('--note', default='', help='Optional user-authored, non-sensitive note (max 4000 chars)')
     hook = sub.add_parser('hook-context', help='Opt-in Codex SessionStart hook (read-only; accepts JSON stdin)')
+    swarm = sub.add_parser('swarm', help='Plan and execute opt-in Codex jobs in isolated Git worktrees')
+    swarm_sub = swarm.add_subparsers(dest='swarm_command', required=True)
+    for name in ('plan', 'start', 'run', 'status', 'list', 'cleanup'):
+        cmd = swarm_sub.add_parser(name)
+        cmd.add_argument('--target', type=Path, default=Path('.'))
+        cmd.add_argument('--json', action='store_true')
+        if name in ('plan', 'start'):
+            cmd.add_argument('task', help='Non-sensitive task description')
+            cmd.add_argument('--profile', choices=profile_names() + ('auto',), default='auto')
+            cmd.add_argument('--max-agents', type=int, default=3)
+        if name in ('run', 'status', 'cleanup'):
+            cmd.add_argument('job_id', help='12-character ForgeQuorum job ID')
+        if name == 'run':
+            cmd.add_argument('--execute', action='store_true', help='Explicitly run Codex in this worktree')
+            cmd.add_argument('--timeout', type=int, default=900)
+        if name == 'cleanup':
+            cmd.add_argument('--confirm', action='store_true', help='Remove only a clean worktree; preserve its branch')
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
+    if args.command == 'swarm':
+        try:
+            root = args.target.absolute()
+            if args.swarm_command == 'plan':
+                result = plan(root, args.task, args.profile, args.max_agents)
+            elif args.swarm_command == 'start':
+                result = create_job(root, args.task, args.profile, args.max_agents)
+            elif args.swarm_command == 'run':
+                result = execute_job(root, args.job_id, args.timeout, args.execute)
+            elif args.swarm_command == 'status':
+                result = inspect_job(root, args.job_id)
+            elif args.swarm_command == 'list':
+                result = list_jobs(root)
+            else:
+                result = cleanup_job(root, args.job_id, args.confirm)
+        except (SwarmError, OSError, ValueError) as exc:
+            print(f'ERROR: {exc}', file=sys.stderr)
+            return 1
+        if args.json:
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+        else:
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 1 if args.swarm_command == 'run' and args.execute and result.get('state') != 'completed' else 0
     if args.command == 'list':
         print(f'{len(AGENTS)} specialized agents:')
         for agent in AGENTS:

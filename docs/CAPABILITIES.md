@@ -14,7 +14,7 @@ This document describes **ForgeQuorum itself**. Features marked as planned are n
 | Local context | `fq context` summarizes stack metadata; `fq checkpoint` writes opt-in notes | No automatic transcript capture or cross-session learning |
 | Hooks | Optional example for an advisory Codex session-start hook | Requires explicit configuration and trust; not part of plugin distribution |
 | Quality | Unit tests, portable exports checked in CI, routing fixtures | No real multi-language end-to-end Codex task matrix yet |
-| Multi-agent delegation | Codex-native role definitions and coordination guidance | Real multi-agent scheduling, worktree isolation, merge coordination are planned |
+| Isolated Codex jobs | `fq swarm` plans, creates dedicated Git worktrees, optionally invokes `codex exec` and preserves reviewable Git branches | One process per job; Codex-native subagent delegation is advisory. No automatic parallel scheduler, merges, token accounting or production deploys |
 | Cost controls | Guidance to keep teams small | No live usage/cost telemetry |
 | Deployment | Review-first release and rollout guidance | No unattended deploys, cloud mutations or destructive production commands |
 
@@ -46,4 +46,4 @@ python tools/evaluate_routing.py
 - Favor portable, original documentation and compatibility with native Codex interfaces.
 - Maintain release notes and user examples against actual tested behavior.
 
-For upcoming features, see [ROADMAP.md](../ROADMAP.md).
+[Orchestration guide](ORCHESTRATION.md) · For upcoming features, see [ROADMAP.md](../ROADMAP.md).

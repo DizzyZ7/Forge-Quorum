@@ -1,4 +1,4 @@
-# Isolated Codex jobs, scheduler and review-first operations (v0.8.0)
+# Isolated Codex jobs, priority queue and review-first operations (v0.9.0)
 
 ForgeQuorum offers **opt-in local execution**, not an autonomous multi-model server. It coordinates one `codex exec` invocation per prepared worktree and suggests Codex-native subagents when those have been configured. Real delegated agent count depends on your Codex client.
 
@@ -121,3 +121,16 @@ The scheduler is a per-user, local-only file state machine. Cross-process admiss
 Operator recovery: `fq scheduler status` to identify a ticket, check the originating PID and any descendants, then `fq scheduler release <ticket> --confirm` only after the original process is gone. A separate `fq swarm recover` may still be required for job metadata. No recovery action deletes an unrelated worktree.
 
 `fq swarm handoff` is read-only. It blocks worktree handoff if jobs are unfinished, edits are uncommitted, prior verification is absent or stale, project `HEAD` has diverged from the recorded job base, or multiple job diffs touch the same path. A successful preflight is **not** automatic merging and does not prove semantic compatibility.
+
+
+## Priority queue and dependency ordering (v0.9.0)
+
+Use `fq queue add TASK --priority 0 --target .` to create a worktree and insert it in the repository-scoped queue. `--after <id> [<id> ...]` accepts only already queued IDs in the same repository. This creation-time rule prevents dependency cycles. Higher priority values (-100..100) run first, ties use FIFO insertion sequence. A blocked high-priority task does not prevent its ready predecessors from running.
+
+`fq queue status` shows queue states and readiness; `fq queue watch --seconds 30` polls that metadata and prints JSONL on changes in the **foreground**. No background daemon, model messages, secrets or Codex transcripts are recorded. `fq queue run --max-jobs 4 --parallel 2` is a preview; add `--execute` to authorize jobs, with explicit per-job timeout and token reservation flags. Admission also obeys `fq scheduler` global limits. Two distinct CLI processes cannot claim one queued job simultaneously.
+
+A dependency is satisfied when a prior queue job's Codex invocation finishes successfully. This **does not** mean its code was merged, tested, reviewed, or made visible in dependent worktrees. Every worktree branches from committed HEAD at *enqueue time*; use an explicit human-reviewed handoff to integrate actual changes.
+
+A failed task blocks its dependents; operator can inspect and explicitly call `fq queue retry JOB --confirm` if its worktree is runnable. `fq queue cancel JOB --confirm` only affects queued (not claimed/running) entries. `fq queue recover JOB --confirm` marks an abandoned claim failed **only if the claiming PID is no longer alive**; operators must also inspect child processes and the global scheduler reservation manually. Claims are never silently reaped. Queue data is in `.git/forgequorum/queue.json` and is not a security boundary against a local attacker with write access.
+
+**Limitations:** no automatic resumption after process crash, no artifact transfer between dependent jobs, no remote host coordination, no hard token or monetary cap, no automatic verification/merge, and no semantic conflict guarantees. `watch` provides state changes, not streaming Codex output.

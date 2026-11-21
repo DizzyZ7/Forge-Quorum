@@ -1,40 +1,21 @@
 # ForgeQuorum roadmap
 
-**Shipped through v0.8.0:** 52 role definitions, 39 skills, 25 profiles, plugin exports, offline stack/routing/verification, local context checkpoints, opt-in `codex exec` jobs, isolated Git worktrees, per-job cross-process claims, bounded parallel batches, read-only review reports, cross-process admission slots, conservative token reservation ledger, and manual handoff preflight. Real subagent scheduling remains a Codex runtime responsibility.
+**Delivered through v0.9.0:** 52 engineering role templates, 39 reusable skills, 25 profiles, Codex project installer and plugin exports, offline routing, isolated worktrees, per-job locks, bounded batches, global local-host scheduler, conservative token admissions, cancellation, crash recovery controls, read-only conflict/handoff checks, and a repository priority/dependency queue with bounded foreground state observation.
 
 ## Next priorities (not shipped)
 
-1. **Stack adapters:** project-specific test/build commands for JS/TS, Go, Rust, Java, C#, Flutter, PHP and C++ with a user-reviewed plan and explicit execution authorization.
-2. **Composite profiles:** support multi-package repositories without installing a huge `full` profile; selectable role sets, multiple matching stacks and exact manifests.
-3. **Advanced orchestration:** optional Codex SDK/app-server integration for streaming events, richer runtime event streaming, permission propagation, and safe crash recovery.
-4. **Execution budgets:** live token controls (not just admission reservations), measured execution traces and human checkpoints.
-5. **Worktree coordination:** expand read-only Git summaries into ownership-aware diff review, merge previews and conflict handling.
-6. **Quality gates:** verified build/test/static/security results, provenance, baseline snapshots and rollback plans.
-7. **Packaging and discovery:** signed cross-platform binaries, verified installation paths, demos and contribution templates.
+1. **Real Codex runtime integration tests:** run authorized non-production jobs on supported clients and verify the true event/approval lifecycle.
+2. **Artifact-aware dependency handoff:** explicitly reviewed patch transfer or cherry-pick into dependent worktrees, with conflict previews; never silently merge.
+3. **Queue durability and operator tools:** audit event history, status snapshots, safe recovery guidance, no background execution by default.
+4. **Verified quality gates:** support optional dependency policies requiring fresh commit/test evidence before dispatch.
+5. **Accurate resource policy:** account for all executions and model-reported usage with clear partial/missing reporting; no claim of financial caps.
+6. **Polyglot build matrix:** actual JS/TS, Go, Rust, JVM, .NET, Swift, Flutter and C++ reproducible examples.
+7. **Packaging and developer adoption:** trusted releases, documented installation options, demos and reproducible contribution guides.
 
 ## Principles
 
-- Keep offline configuration and actual agent execution separate; never imply that a generated TOML file executed an agent.
-- Prefer fewer capable specialists to unbounded fan-out.
-- Never run newly detected commands or apply infrastructure changes automatically.
-- Preserve existing user files and reject unsafe conflicts.
-- Support more languages by meaningful, tested behavior—not a marketing count alone.
-
-### Delivered in v0.7.0
-
-- Cooperative cancellation with explicit opt-in and preserved worktree edits.
-- Safe, operator-confirmed interrupted-job recovery without deleting run locks.
-- Git path overlap reports, per-worktree verification plans/results and usage summaries based only on reported Codex tokens.
-
-### Remaining priorities
-
-- Extend per-user scheduling to optional cross-host coordination, audit trails and stronger runtime cost enforcement.
-- Better observability, audit history and safe resume semantics for interrupted jobs.
-- Stronger end-to-end Codex live-runtime testing and operating-system child-process verification.
-- Explicit, reviewable patch reconciliation without default automatic merges.
-
-### Delivered in v0.8.0
-
-- Per-OS-user global scheduler slots across CLI processes with explicit, fail-closed stale-claim handling.
-- Optional daily UTC reservation accounting and manual ticket release; not a billing guarantee.
-- Conservative read-only multi-job handoff gate; still no autonomous merging.
+- Never imply that an agent role template executes by itself.
+- Keep run authorization explicit and preserve all user code.
+- Dependencies determine ordering until explicitly reviewed code integration exists.
+- Do not auto-clear abandoned claims, force-push, merge or deploy.
+- Treat a passing Codex invocation as distinct from independent verification.

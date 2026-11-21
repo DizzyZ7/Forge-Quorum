@@ -1,12 +1,20 @@
 # Changelog
 
-## 0.8.0 — Cross-process scheduler and conservative handoff
+## 0.9.0 — Repository priority queue and dependency ordering
 
-- Added global per-user Codex admission slots across ForgeQuorum CLI invocations with fail-closed, manually recoverable claims.
-- Added opt-in UTC daily token reservation ledger and conservative reconciliation based on Codex-reported totals; not a live or monetary cap.
-- Added `fq scheduler status/configure/release` with explicit confirmations and process-owner checks before manual release.
-- Added `fq swarm handoff` for read-only clean-worktree, verification, base-head and path-overlap preflight. No automatic merges.
-- Added cross-process and concurrency regression tests; no transcriptions, auto-push, background daemon or external service.
+- Introduced repository-scoped `fq queue add/status/run/priority/retry/cancel/recover/watch` with persistent metadata and atomic selection across independent CLI invocations.
+- Added -100..100 priority ordering, FIFO tie-breaks and creation-time dependencies on existing queued jobs, avoiding dependency cycles.
+- Dependent execution waits for successful Codex invocation; failed/cancelled predecessors block downstream work. Worktree content is never automatically transferred or merged.
+- Dispatch is preview-only by default; explicit `--execute` and local scheduler admission still control actual model execution.
+- Implemented fail-closed abandoned claims, confirmation-gated operator recovery and conservative queue metadata validation.
+- Added bounded foreground JSONL observation of changing queue states (not model transcripts), safe cancellation of waiting entries, and regression coverage across real Git worktrees and independent processes.
+- No background daemon, automatic verification, code merge, billable-token cap or remote scheduler.
+
+## 0.8.0 — Cross-process admission and safe handoff
+
+- Added local-host global Codex process admissions, configurable concurrent jobs and conservative daily token reservations.
+- Added operator-confirmed dead-PID scheduler ticket recovery and read-only `swarm handoff` to assess recorded verification, changed paths and branch conditions before manual integration.
+- Reservations are not a hard resource or billing cap; semantic merge safety is not guaranteed.
 
 
 ## 0.7.0 — Operational controls and evidence-based verification

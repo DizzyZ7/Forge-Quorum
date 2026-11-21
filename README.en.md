@@ -29,7 +29,7 @@ Avoid installing the same skill through both methods. Hooks are opt-in and are n
 
 ---
 
-> **v0.8.0 adds cross-process scheduling, conservative token reservations, and manual handoff preflight for isolated Codex jobs. It is not an autonomous multi-agent scheduler.** Actual subagent execution is delegated to Codex, subject to client support, sandbox permissions and available tools. Roles are instructions, not separate trained models.
+> **v0.9.0 adds a repository-scoped priority/dependency queue, on top of bounded isolated Codex worktrees and local cross-process admission. It is not an autonomous multi-agent scheduler.** Actual subagent execution is delegated to Codex, subject to client support, sandbox permissions and available tools. Roles are instructions, not separate trained models.
 
 [Русская документация](README.md) · [Language support](docs/LANGUAGE-SUPPORT.md) · [Architecture](docs/ARCHITECTURE.md) · [Roadmap](ROADMAP.md)
 
@@ -56,7 +56,26 @@ ownership, run the actual build/tests, report evidence and request approval
 before publishing or deploying anything.
 ```
 
-## Isolated Codex jobs with global admission control (v0.8.0)
+## Priority queue and dependency ordering (v0.9.0)
+
+`queue add` creates a separate worktree and enqueues a job. `queue run` only previews unless you explicitly pass `--execute`. A repository-scoped atomic mutex prevents two CLI processes from claiming the same queued job; the global scheduler still applies its own concurrency and conservative token-reservation policy.
+
+```bash
+fq queue add "Implement API" --target . --profile go --priority 20
+fq queue add "Test API" --target . --priority 80 --after <api-job-id>
+fq queue status --target .
+fq queue run --target . --max-jobs 2              # no model calls
+fq queue run --target . --max-jobs 2 --parallel 2 --execute
+fq queue watch --target . --seconds 30           # foreground state-only JSONL
+fq queue priority <job-id> 70 --target . --confirm
+fq queue cancel <job-id> --target . --confirm   # queued only
+fq queue retry <job-id> --target . --confirm    # after failure
+fq queue recover <job-id> --target . --confirm  # manual abandoned claim recovery
+```
+
+**Dependencies order execution, not code integration.** Each worktree starts from committed HEAD at enqueue time. A completed Codex invocation is *not* a verified test result or a merged change. Use `swarm verify` and `swarm handoff` for independent review. Queue claims fail closed after a crash; operator inspection is required before recovery. `watch` polls bounded local metadata in the foreground and does not stream model transcripts.
+
+## Isolated Codex jobs and bounded batches
 
 ```bash
 fq swarm plan "Build a Go API with tests" --target . --json
@@ -71,7 +90,7 @@ fq swarm batch <job-a> <job-b> --target . --max-parallel 2 --execute
 fq swarm cleanup <job-id> --target . --confirm
 ```
 
-Every job starts in its own `forgequorum/<id>` branch and Git worktree based on committed HEAD. Your uncommitted changes are not copied or discarded. No automatic merge, push or deployment is performed. Execution requires a locally installed and authenticated Codex CLI and may consume tokens. Parallel batches are limited to four workers per CLI invocation, and a separate cross-process scheduler defaults to two globally admitted Codex processes per user profile. An optional daily *reservation-based admission budget* is available, but it cannot cap real-time usage or guarantee monetary spending. There is no automatic conflict resolution. See the [orchestration guide](docs/ORCHESTRATION.md) for safety, limitations and review workflow.
+Every job starts in its own `forgequorum/<id>` branch and Git worktree based on committed HEAD. Your uncommitted changes are not copied or discarded. No automatic merge, push or deployment is performed. Execution requires a locally installed and authenticated Codex CLI and may consume tokens. Parallel batches are limited to four workers per invocation; the local scheduler coordinates global process admissions and optional conservative token reservations. Neither establishes a hard billing cap, and conflict resolution is not automatic. See the [orchestration guide](docs/ORCHESTRATION.md) for safety, limitations and review workflow.
 
 ## Why this approach?
 
@@ -119,7 +138,7 @@ If ForgeQuorum helps, consider starring ⭐ the repository.
 
 MIT License. Copyright © 2026 Dimash Janibekov. Independent community project; not affiliated with OpenAI.
 
-## Worktree orchestration controls (v0.8.0)
+## Worktree orchestration controls (v0.7.0)
 
 ```bash
 fq swarm conflicts <job-a> <job-b> --target . --json  # read-only path overlap report
@@ -131,20 +150,3 @@ fq swarm recover <job-id> --target . --confirm         # mark orphaned running r
 ```
 
 Cancellation is best effort and never removes worktree changes; recovery refuses to clear run locks. Tests may execute untrusted code and require `--run`. Token usage is JSONL-reported, possibly incomplete, and **not a monetary cost estimate**. ForgeQuorum does not auto-retry, merge, publish or deploy changes. See [the orchestration guide](docs/ORCHESTRATION.md).
-
-
-## Global scheduling, admission budgets, handoff (v0.8.0)
-
-```bash
-fq scheduler status
-fq scheduler configure --max-running 2 --daily-tokens 100000 --confirm
-fq swarm run <job-id> --target . --execute --reserve-tokens 20000
-fq swarm batch <job-a> <job-b> --target . --max-parallel 2 --execute --reserve-tokens 20000
-fq swarm handoff <job-a> <job-b> --target .
-```
-
-The scheduler shares state across independent CLI processes running **under the same OS user and configuration directory** (`~/.forgequorum/scheduler`). Set the absolute `FORGEQUORUM_STATE_DIR` to use another isolated scheduler, including in tests. Only Codex executions started through ForgeQuorum participate in these limits. A positive reservation is mandatory once a daily quota is configured; jobs cannot start if reservations exceed the daily quota. On completion the reservation is reconciled against Codex-reported token usage when available; otherwise the full reservation remains charged. **This is an admission control mechanism, not a real-time token limiter or cost cap.** An execution may exceed its reservation, and the extra usage will be charged to the ledger after the run.
-
-If a process crashes, its global slot remains claimed intentionally. `fq scheduler status` shows the ticket; after verifying that the process has exited, `fq scheduler release <ticket> --confirm` releases it without refunding reserved tokens. This may require separate recovery of the per-job run lock and state. No abandoned lock is cleared automatically. The scheduler cannot coordinate other operating-system users, separate hosts, or Codex sessions started outside ForgeQuorum. See [orchestration](docs/ORCHESTRATION.md).
-
-`fq swarm handoff` is strictly read-only: it requires completed jobs, clean committed worktrees, successful verification recorded against the current HEAD, a matching source base, and no overlapping Git changed paths. It does **not** merge branches, validate full semantic compatibility, or deploy anything.

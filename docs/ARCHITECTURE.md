@@ -41,3 +41,8 @@ A trivial task should use zero extra agents. A typical cross-cutting feature sho
 ## Cross-process admission (v0.8.0)
 
 `src/forgequorum/scheduler.py` stores one policy and a conservative token ledger under the current user's local scheduler directory. Atomic directory creation serializes all admission/settlement updates. Running jobs claim a global slot in addition to their per-job `.lock`. Failed/abandoned claims are deliberately not garbage-collected automatically; release requires explicit operator confirmation and PID exit. This file-based mechanism is local-host scope and makes no monetary spending guarantees. `src/forgequorum/handoff.py` offers read-only multi-job verification preflight; Git merging remains manual.
+
+
+## Repository priority queue (v0.9.0)
+
+`src/forgequorum/queue.py` stores only ordered job IDs, priority, predecessor IDs, state and minimal owner/claim metadata under the repository's Git common directory. Atomic directory-mutex operations claim one ready job across concurrent CLI processes; the existing global scheduler then gates each `codex exec` invocation. Dependencies are deliberately *execution-only*: branches are not rebased and outputs are not copied between worktrees. `queue watch` polls a bounded local snapshot and never records agent transcripts. Abandoned claims remain blocked until explicit operator recovery.

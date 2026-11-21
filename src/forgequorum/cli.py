@@ -23,6 +23,7 @@ from .swarm import (SwarmError, plan, create_job, inspect_job, list_jobs,
 from .swarm_control import recovery, request_cancel, conflicts, verify_job, usage_report
 from .handoff import handoff
 from .scheduler import status as scheduler_status, configure as scheduler_configure, release as scheduler_release
+from .queue import enqueue, snapshot as queue_snapshot, dispatch as queue_dispatch, reprioritize, requeue, recover as queue_recover, cancel_queued, observe
 
 MANIFEST = Path('.forgequorum/manifest.json')
 START = '<!-- forge-quorum:start -->'
@@ -388,6 +389,33 @@ def parser() -> argparse.ArgumentParser:
     sr = scheduler_sub.add_parser('release', help='Manually release abandoned slot after PID inspection')
     sr.add_argument('ticket', help='32-character scheduler ticket')
     sr.add_argument('--confirm', action='store_true')
+    queue = sub.add_parser('queue', help='Priority and dependency-aware repository job queue')
+    queue_sub = queue.add_subparsers(dest='queue_command', required=True)
+    for name in ('add', 'status', 'watch', 'run', 'priority', 'retry', 'recover', 'cancel'):
+        q = queue_sub.add_parser(name)
+        q.add_argument('--target', type=Path, default=Path('.'), help='Git repository root or subdirectory')
+        if name == 'add':
+            q.add_argument('task', help='Task to perform in its own worktree')
+            q.add_argument('--priority', type=int, default=0, help='-100..100, highest first')
+            q.add_argument('--after', nargs='*', default=[], metavar='JOB_ID',
+                           help='Existing queued jobs that must complete before this job starts')
+            q.add_argument('--profile', choices=profile_names() + ('auto',), default='auto')
+            q.add_argument('--max-agents', type=int, default=3)
+        if name in ('priority', 'retry', 'recover', 'cancel'):
+            q.add_argument('job_id', help='12-character job ID')
+            q.add_argument('--confirm', action='store_true')
+        if name == 'priority':
+            q.add_argument('priority', type=int, help='New priority -100..100')
+        if name == 'watch':
+            q.add_argument('--seconds', type=float, default=20, help='Bounded foreground watch duration 0..300s')
+            q.add_argument('--interval', type=float, default=1, help='Poll interval 0.1..30s')
+        if name == 'run':
+            q.add_argument('--execute', action='store_true', help='Explicitly authorize model execution')
+            q.add_argument('--max-jobs', type=int, default=1, help='Number of jobs to attempt (1..12)')
+            q.add_argument('--parallel', type=int, default=1, help='Concurrent local workers (1..4)')
+            q.add_argument('--timeout', type=int, default=900)
+            q.add_argument('--reserve-tokens', type=int, default=0)
+            q.add_argument('--wait-seconds', type=int, default=0)
     swarm = sub.add_parser('swarm', help='Plan and execute opt-in Codex jobs in isolated Git worktrees')
     swarm_sub = swarm.add_subparsers(dest='swarm_command', required=True)
     for name in ('plan', 'start', 'run', 'status', 'list', 'cleanup', 'batch', 'review', 'cancel', 'recover', 'conflicts', 'verify', 'usage', 'handoff'):
@@ -441,6 +469,38 @@ def main(argv: list[str] | None = None) -> int:
             print(f'ERROR: {exc}', file=sys.stderr)
             return 1
         print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+    if args.command == 'queue':
+        try:
+            root = args.target.absolute()
+            if args.queue_command == 'add':
+                result = enqueue(root, args.task, args.priority, args.after, args.profile, args.max_agents)
+            elif args.queue_command == 'status':
+                result = queue_snapshot(root)
+            elif args.queue_command == 'watch':
+                for item in observe(root, args.seconds, args.interval):
+                    print(json.dumps(item, ensure_ascii=False), flush=True)
+                return 0
+            elif args.queue_command == 'run':
+                result = queue_dispatch(root, args.max_jobs, args.parallel, args.timeout,
+                                        args.reserve_tokens, args.wait_seconds, args.execute)
+            elif args.queue_command == 'priority':
+                result = reprioritize(root, args.job_id, args.priority, args.confirm)
+            elif args.queue_command == 'retry':
+                result = requeue(root, args.job_id, args.confirm)
+            elif args.queue_command == 'cancel':
+                result = cancel_queued(root, args.job_id, args.confirm)
+            else:
+                result = queue_recover(root, args.job_id, args.confirm)
+        except (SwarmError, OSError, ValueError) as exc:
+            print(f'ERROR: {exc}', file=sys.stderr)
+            return 1
+        except KeyboardInterrupt:
+            print('Queue watch interrupted', file=sys.stderr)
+            return 130
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        if args.queue_command == 'run' and args.execute and result['state'] == 'partial-failure':
+            return 1
         return 0
     if args.command == 'swarm':
         try:

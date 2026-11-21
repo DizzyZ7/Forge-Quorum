@@ -14,8 +14,8 @@ This document describes **ForgeQuorum itself**. Features marked as planned are n
 | Local context | `fq context` summarizes stack metadata; `fq checkpoint` writes opt-in notes | No automatic transcript capture or cross-session learning |
 | Hooks | Optional example for an advisory Codex session-start hook | Requires explicit configuration and trust; not part of plugin distribution |
 | Quality | Unit tests, portable exports checked in CI, routing fixtures | No real multi-language end-to-end Codex task matrix yet |
-| Isolated Codex jobs | `fq swarm` plans, creates dedicated Git worktrees, optionally invokes `codex exec` and preserves reviewable Git branches | Optional bounded batch execution of prepared jobs, max 4 processes per batch; Codex-native subagent delegation is advisory. No global concurrency limit, merges or production deploys. v0.7 adds explicit cancellation, interrupted-state recovery, worktree path overlap reports, test gates and partial reported-token telemetry |
-| Cost controls | Explicit `--execute`, per-job timeout and per-batch concurrency cap | Reported per-run token counts and a cross-job summary; no account-wide billing, hard spend cap, or guaranteed termination of all child processes |
+| Isolated Codex jobs | `fq swarm` plans, creates dedicated Git worktrees, optionally invokes `codex exec` and preserves reviewable Git branches | Optional bounded batch execution of prepared jobs, max 4 processes per batch; Codex-native subagent delegation is advisory. Global local-host admission is now available through `fq scheduler`; still no automatic merges or production deploys. v0.7 adds explicit cancellation, interrupted-state recovery, worktree path overlap reports, test gates and partial reported-token telemetry |
+| Cost controls | Explicit `--execute`, per-job timeout and per-batch concurrency cap | Reported token counts, global local-host process admission and conservative token reservations; no account-wide billing, hard spending cap, or guaranteed termination of all child processes |
 | Deployment | Review-first release and rollout guidance | No unattended deploys, cloud mutations or destructive production commands |
 
 ## Installation and verification
@@ -57,3 +57,14 @@ python tools/evaluate_routing.py
 | Token reservations | Optional UTC daily token reservation ledger, reconciled to reported usage | Not a real-time hard cap, actual billing, or a pricing estimator |
 | Safe handoff | `fq swarm handoff` checks completed jobs, verification freshness, clean commits, base divergence and overlapping paths | Advisory only; cannot rule out semantic conflicts or merge automatically |
 | Recovery | Operator-confirmed global ticket release after PID exit | Does not kill processes, remove job locks or refund unknown usage |
+
+
+## v0.9.0 priority queue
+
+| Capability | Available now | Limitation |
+|---|---|---|
+| Priority dispatch | `fq queue add`, `status`, `run` prioritize existing worktree jobs (-100..100) | Only tasks created in this repository queue; bounded 12 jobs per command |
+| Dependencies | Execution-order `--after` on previously queued IDs, with blocked/failed state | Changes are **not** copied or merged across worktrees; completed jobs are not automatically verified |
+| Multi-CLI claims | Atomic repository-scoped queue mutex, persistent per-job claims | Crashes require human recovery and separate scheduler inspection |
+| Observation | Bounded foreground `fq queue watch` emits changed local metadata as JSONL | No model transcript streaming, daemon or remote event service |
+| Recovery/control | `queue retry`, `cancel`, `recover`, `priority` require explicit confirmation | Never deletes user edits or terminates unrelated processes |

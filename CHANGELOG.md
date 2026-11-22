@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.1 — Cross-platform CI fixture fix
+
+- Use the canonical repository root returned by Git when testing patch transfers on Windows. This corrects two regression fixtures without changing production worktree ownership checks.
+- All v0.11.0 workflow, dashboard and quality policy features remain unchanged.
+
+
 ## 0.11.0 — Declarative task DAGs, quality policies and offline dashboard
 
 - Added `fq workflow RECIPE` preview and explicit `--apply` queue preparation for up to 12 reviewed, ordered tasks with symbolic predecessors, profiles, priorities and dependency gates.

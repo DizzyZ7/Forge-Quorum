@@ -26,6 +26,8 @@ MAX_ENTRIES = 500
 MAX_BATCH = 12
 MAX_PARALLEL = 4
 MAX_PRIORITY = 100
+MAX_EVENTS = 500
+EVENT_KINDS = {"queued", "claimed", "completed", "failed", "cancelled", "reprioritized", "retried", "recovered", "transferred"}
 STATES = {'queued', 'claimed', 'completed', 'failed', 'cancelled'}
 GATES = {'order', 'verified', 'transferred'}
 
@@ -46,6 +48,14 @@ def _validate(data: object) -> dict:
     if not isinstance(data, dict) or data.get('schema') != SCHEMA or not isinstance(data.get('entries'), dict):
         raise SwarmError('Invalid queue metadata; refusing execution')
     entries = data['entries']
+    events = data.get('events', [])
+    if (not isinstance(events, list) or len(events) > MAX_EVENTS or any(
+        not isinstance(e, dict) or set(e) != {'at', 'job_id', 'kind'}
+        or not isinstance(e['at'], str) or len(e['at']) > 40
+        or not isinstance(e['job_id'], str) or ID.fullmatch(e['job_id']) is None
+        or not isinstance(e.get('kind'), str) or e['kind'] not in EVENT_KINDS for e in events
+    )):
+        raise SwarmError('Invalid queue event history; refusing execution')
     if len(entries) > MAX_ENTRIES:
         raise SwarmError('Queue capacity exceeded')
     for key, item in entries.items():
@@ -105,11 +115,47 @@ def _read(folder: Path) -> dict:
     if file.is_symlink():
         raise SwarmError('Refusing symlinked queue metadata')
     if not file.exists():
-        return {'schema': SCHEMA, 'entries': {}}
+        return {'schema': SCHEMA, 'entries': {}, 'events': []}
     try:
         return _validate(json.loads(file.read_text(encoding='utf-8')))
     except (ValueError, OSError, UnicodeError) as exc:
         raise SwarmError('Queue metadata is unreadable') from exc
+
+
+def _event(data: dict, kind: str, job_id: str) -> None:
+    """Append bounded, task-content-free events to the same atomic queue snapshot."""
+    if kind not in EVENT_KINDS or ID.fullmatch(job_id) is None:
+        raise SwarmError('Invalid event')
+    data['events'] = (data.get('events', []) + [{'at': _now(), 'job_id': job_id, 'kind': kind}])[-MAX_EVENTS:]
+
+
+def events(target: Path, limit: int = 30) -> dict:
+    if type(limit) is not int or not 1 <= limit <= MAX_EVENTS:
+        raise SwarmError(f'Event limit must be between 1 and {MAX_EVENTS}')
+    _, common = _repo(target)
+    # Reads without creating queue storage in a pristine repository.
+    folder = _job_dir(common).parent
+    if folder.is_symlink():
+        raise SwarmError('Refusing symlinked event directory')
+    data = _read(folder)
+    return {'events': data.get('events', [])[-limit:],
+            'returned': min(limit, len(data.get('events', []))),
+            'retained': len(data.get('events', [])),
+            'notice': 'Bounded local queue transitions only; no prompts, transcripts or model payloads.'}
+
+
+def dashboard(target: Path) -> dict:
+    """Read-only, deterministic UI projection. Never inspects agent transcripts."""
+    info = snapshot(target)
+    counts: dict[str, int] = {}
+    blocked: dict[str, int] = {}
+    for item in info['items']:
+        counts[item['state']] = counts.get(item['state'], 0) + 1
+        if item['state'] == 'queued' and item['readiness'] != 'ready':
+            blocked[item['readiness']] = blocked.get(item['readiness'], 0) + 1
+    return {'total': info['total'], 'ready': info['ready'],
+            'states': counts, 'blocked_reasons': blocked, 'items': info['items'],
+            'notice': 'Local metadata snapshot; not a proof of successful code quality, cost or remote execution.'}
 
 
 def _write(folder: Path, data: dict) -> None:
@@ -200,6 +246,7 @@ def enqueue(target: Path, task: str, priority: int = 0, after: list[str] | None 
                       'sequence': sequence, 'state': 'queued', 'gate': gate, 'handoffs': {}, 'created_at': _now(),
                       'claim': None, 'last_result': None}
             data['entries'][job['id']] = record
+            _event(data, 'queued', job['id'])
             _write(folder, data)
     except Exception as exc:
         raise SwarmError(f'Worktree {job["id"]} was created but queue registration failed; inspect it manually') from exc
@@ -235,6 +282,7 @@ def reprioritize(target: Path, job_id: str, priority: int, confirm: bool = False
             raise SwarmError('Only a queued job can change priority')
         if confirm:
             item['priority'] = priority
+            _event(data, 'reprioritized', job_id)
             _write(folder, data)
     return {'id': job_id, 'priority': priority, 'state': 'updated' if confirm else 'dry-run'}
 
@@ -248,6 +296,7 @@ def _claim_next(root: Path, common: Path) -> tuple[str, str] | None:
         item = available[0]
         claim = uuid4().hex
         item.update(state='claimed', claim={'pid': os.getpid(), 'nonce': claim}, claimed_at=_now())
+        _event(data, 'claimed', item['id'])
         _write(folder, data)
         return item['id'], claim
 
@@ -262,6 +311,7 @@ def _finish(common: Path, job_id: str, nonce: str, state: str, error: str | None
         item['claim'] = None
         item['finished_at'] = _now()
         item['last_result'] = {'state': state, 'error': error}
+        _event(data, state, job_id)
         _write(folder, data)
 
 
@@ -335,6 +385,7 @@ def cancel_queued(target: Path, job_id: str, confirm: bool = False) -> dict:
             entry['state'] = 'cancelled'
             entry['finished_at'] = _now()
             entry['last_result'] = {'state': 'cancelled', 'error': None}
+            _event(data, 'cancelled', job_id)
             _write(folder, data)
     return {'id': job_id, 'state': 'cancelled' if confirm else 'dry-run',
             'notice': 'Queue admission cancelled; Git branch and worktree are preserved.'}
@@ -374,6 +425,7 @@ def requeue(target: Path, job_id: str, confirm: bool = False) -> dict:
         if confirm:
             item['state'] = 'queued'
             item['last_result'] = None
+            _event(data, 'retried', job_id)
             _write(folder, data)
     return {'id': job_id, 'state': 'queued' if confirm else 'dry-run',
             'notice': 'A retry reuses the existing worktree, including any previous edits.'}
@@ -395,6 +447,7 @@ def recover(target: Path, job_id: str, confirm: bool = False) -> dict:
             item['state'] = 'failed'
             item['claim'] = None
             item['last_result'] = {'state': 'failed', 'error': 'Operator recovered abandoned queue claim'}
+            _event(data, 'recovered', job_id)
             _write(folder, data)
     return {'id': job_id, 'state': 'failed' if confirm else 'dry-run',
             'notice': 'Recovery does not stop Codex, clear scheduler reservations or restart jobs. Inspect the original worktree first.'}

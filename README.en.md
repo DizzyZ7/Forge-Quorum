@@ -29,7 +29,7 @@ Avoid installing the same skill through both methods. Hooks are opt-in and are n
 
 ---
 
-> **v0.10.0 adds opt-in verified dependency gates and explicit staged patch transfer, alongside a repository-scoped priority/dependency queue, on top of bounded isolated Codex worktrees and local cross-process admission. It is not an autonomous multi-agent scheduler.** Actual subagent execution is delegated to Codex, subject to client support, sandbox permissions and available tools. Roles are instructions, not separate trained models.
+> **v0.11.0 adds declarative task workflows, required test policies and offline queue dashboards. v0.10.0 added opt-in verified dependency gates and explicit staged patch transfer, alongside a repository-scoped priority/dependency queue, on top of bounded isolated Codex worktrees and local cross-process admission. It is not an autonomous multi-agent scheduler.** Actual subagent execution is delegated to Codex, subject to client support, sandbox permissions and available tools. Roles are instructions, not separate trained models.
 
 [Русская документация](README.md) · [Language support](docs/LANGUAGE-SUPPORT.md) · [Architecture](docs/ARCHITECTURE.md) · [Roadmap](ROADMAP.md)
 
@@ -55,6 +55,22 @@ Select only necessary language-specific specialists, assign non-overlapping file
 ownership, run the actual build/tests, report evidence and request approval
 before publishing or deploying anything.
 ```
+
+## Declarative task workflows and observability (v0.11.0)
+
+```bash
+fq workflow ./examples/workflows-fullstack.json --target .         # read-only preview
+fq workflow ./examples/workflows-fullstack.json --target . --apply # queue worktrees, no model calls
+fq queue events --target . --limit 30
+fq queue dashboard --target .
+fq queue dashboard --target . --html ./dashboard.html
+```
+
+Recipes explicitly encode job roles, priorities, predecessor keys and strict dependency gates.
+The optional root-level `forgequorum.quality.json` can require listed built-in test gates before
+`verified` admission. No arbitrary commands are accepted in policies, and running project tests
+still requires `--run`. Dashboard HTML is a static, local-only snapshot with no scripts or
+agent transcripts. See [workflow documentation](docs/WORKFLOWS.md).
 
 ## Priority queue and dependency ordering (v0.10.0)
 

@@ -77,3 +77,14 @@ python tools/evaluate_routing.py
 | Patch-aware queue dependencies | `--gate transferred` refuses downstream admission until every parent has been verified and explicitly transferred | Existing v0.9 `order` remains default; no change to legacy behavior |
 | Git patch preview and staging | `fq queue transfer CHILD --from PARENT [--apply]` checks and then stages committed parent changes into child worktree | No merge/commit/push/deploy; rejects conflicts, unsupported paths, edited worktrees, symlink/submodule changes, large patches |
 | Transfer provenance | Records SHA-256 of patch and staged index, parent and destination Git HEADs | Local records are not remote attestations and cannot detect authorized arbitrary edits outside the tool |
+
+## v0.11.0 — workflow and quality planning
+
+| Area | Available now | Boundary |
+|---|---|---|
+| Declarative plans | `fq workflow RECIPE [--apply]` previews and queues up to 12 ordered, dependent tasks | No LLM planning or automatic rollback of partially created Git worktrees |
+| Quality policies | Optional root-level `forgequorum.quality.json` requires known test gates | No custom shell commands, guaranteed sandbox, or remote proof of test success |
+| Queue events | Bounded 500-entry history in atomic queue metadata; `fq queue events` | Local operational history, not an immutable audit log or agent transcript |
+| Queue dashboard | `fq queue dashboard` JSON view and explicit static HTML export | No live server, background service, remote tracking or browser-side scripts |
+
+[Workflow usage and constraints](WORKFLOWS.md).

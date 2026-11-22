@@ -1,0 +1,4 @@
+{
+  "schema": 1,
+  "required_gates": ["go-test"]
+}

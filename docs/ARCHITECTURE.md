@@ -60,3 +60,13 @@ transfer, while the per-job lock prevents parallel ForgeQuorum job runs.
 Recorded SHA-256 values protect against accidental staged-index drift. Git
 worktrees are not a sandbox; adversarial external editors can still race with
 local checks. The main worktree is never written by this feature.
+
+## v0.11 task orchestration and monitoring
+
+`workflows.py` validates small user-authored JSON task graphs (earlier-step dependencies)
+and performs explicit sequential `enqueue` calls. A failed apply leaves all created
+worktrees untouched and reports their IDs. `quality_policy.py` validates an
+allowlisted, root-level JSON policy and `quality.py` checks that required built-in
+tests were detected and passed. `queue.py` stores bounded state-only events in
+the same atomic snapshot as queue entries. `queue_dashboard.py` renders a fully
+local, script-free HTML snapshot. None of these tools implicitly calls Codex.

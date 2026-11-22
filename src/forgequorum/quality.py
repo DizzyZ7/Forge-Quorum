@@ -14,6 +14,7 @@ import sys
 from typing import Any
 
 from .stack import detect_stack
+from .quality_policy import read_policy, assess
 
 
 def _regular(root: Path, relative: str) -> bool:
@@ -85,8 +86,11 @@ def verification_plan(root: Path, max_files: int = 5000) -> dict[str, Any]:
         add(_gate('ruby-test', ['bundle', 'exec', 'rake', 'test'], 'Ruby project detected; confirm Rake test task exists'))
     # Do not guess a test runner for arbitrary PHP/C++, frontend apps, or
     # multi-repo layouts without a real project manifest or script.
+    policy = read_policy(root)
+    policy_status = assess(policy, selected)
     return {
         'target': str(root.resolve()),
+        'quality_policy': policy_status,
         'profile': stack['recommended_profile'],
         'languages': [item['name'] for item in stack['languages']],
         'gates': selected,
@@ -122,5 +126,6 @@ def run_verification(root: Path, *, timeout: int = 120, run: bool = False) -> di
         except OSError:
             results.append({'name': gate['name'], 'status': 'launch-error', 'exit_code': None})
     plan['results'] = results
-    plan['ok'] = bool(results) and all(item['status'] == 'passed' for item in results)
+    plan['quality_policy'] = assess(read_policy(root), plan['gates'], results)
+    plan['ok'] = bool(results) and all(item['status'] == 'passed' for item in results) and plan['quality_policy']['ok']
     return plan

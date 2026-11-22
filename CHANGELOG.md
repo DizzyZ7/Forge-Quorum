@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.0 — Declarative task DAGs, quality policies and offline dashboard
+
+- Added `fq workflow RECIPE` preview and explicit `--apply` queue preparation for up to 12 reviewed, ordered tasks with symbolic predecessors, profiles, priorities and dependency gates.
+- Added failure-safe partial-apply reporting that preserves existing worktrees and returns actual created job IDs rather than silently resetting user changes.
+- Added optional `forgequorum.quality.json` required-test policy using an allowlist of existing detected verification gates; no arbitrary shell commands, no automatic test execution.
+- Added an atomic, bounded 500-event queue transition history and `fq queue events` with no prompts or agent transcripts.
+- Added a read-only `fq queue dashboard` status projection and opt-in, static, escaped HTML export to a new output file.
+- Added original workflow examples, documentation and regression tests on disposable Git repositories. Live model execution is still unverified.
+
+
 ## 0.10.0 — Verified dependency gates and explicit patch handoff
 
 - Added optional `fq queue add --gate verified|transferred` admission policies. The backward-compatible default remains `order`.

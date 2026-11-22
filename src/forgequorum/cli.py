@@ -23,7 +23,9 @@ from .swarm import (SwarmError, plan, create_job, inspect_job, list_jobs,
 from .swarm_control import recovery, request_cancel, conflicts, verify_job, usage_report
 from .handoff import handoff
 from .scheduler import status as scheduler_status, configure as scheduler_configure, release as scheduler_release
-from .queue import enqueue, snapshot as queue_snapshot, dispatch as queue_dispatch, reprioritize, requeue, recover as queue_recover, cancel_queued, observe
+from .queue import enqueue, snapshot as queue_snapshot, dispatch as queue_dispatch, reprioritize, requeue, recover as queue_recover, cancel_queued, observe, events as queue_events, dashboard as queue_dashboard
+from .queue_dashboard import export as dashboard_export
+from .workflows import workflow, PartialWorkflowError
 from .transfer import transfer as queue_transfer
 
 MANIFEST = Path('.forgequorum/manifest.json')
@@ -390,9 +392,13 @@ def parser() -> argparse.ArgumentParser:
     sr = scheduler_sub.add_parser('release', help='Manually release abandoned slot after PID inspection')
     sr.add_argument('ticket', help='32-character scheduler ticket')
     sr.add_argument('--confirm', action='store_true')
+    workflow_parser = sub.add_parser('workflow', help='Preview or explicitly queue a declarative DAG')
+    workflow_parser.add_argument('recipe', type=Path, help='JSON file with up to 12 dependent tasks')
+    workflow_parser.add_argument('--target', type=Path, default=Path('.'))
+    workflow_parser.add_argument('--apply', action='store_true', help='Create worktrees and enqueue; does NOT run Codex')
     queue = sub.add_parser('queue', help='Priority and dependency-aware repository job queue')
     queue_sub = queue.add_subparsers(dest='queue_command', required=True)
-    for name in ('add', 'status', 'watch', 'run', 'priority', 'retry', 'recover', 'cancel', 'transfer'):
+    for name in ('add', 'status', 'watch', 'run', 'priority', 'retry', 'recover', 'cancel', 'transfer', 'events', 'dashboard'):
         q = queue_sub.add_parser(name)
         q.add_argument('--target', type=Path, default=Path('.'), help='Git repository root or subdirectory')
         if name == 'add':
@@ -404,6 +410,10 @@ def parser() -> argparse.ArgumentParser:
             q.add_argument('--max-agents', type=int, default=3)
             q.add_argument('--gate', choices=('order', 'verified', 'transferred'), default='order',
                            help='Dependency policy: order-only (legacy), verified or explicitly transferred')
+        if name == 'events':
+            q.add_argument('--limit', type=int, default=30, help='Number of recent state transitions (1..500)')
+        if name == 'dashboard':
+            q.add_argument('--html', type=Path, default=None, help='Write static local HTML to a NEW file only')
         if name == 'transfer':
             q.add_argument('job_id', help='Destination queued job ID')
             q.add_argument('--from', dest='source_job', required=True, help='Completed and freshly verified dependency job ID')
@@ -477,6 +487,17 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
+    if args.command == 'workflow':
+        try:
+            result = workflow(args.target.absolute(), args.recipe, args.apply)
+        except PartialWorkflowError as exc:
+            print(f'ERROR: {exc}', file=sys.stderr)
+            return 1
+        except (SwarmError, OSError, ValueError) as exc:
+            print(f'ERROR: {exc}', file=sys.stderr)
+            return 1
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
     if args.command == 'queue':
         try:
             root = args.target.absolute()
@@ -486,6 +507,10 @@ def main(argv: list[str] | None = None) -> int:
                 result = queue_transfer(root, args.job_id, args.source_job, args.apply)
             elif args.queue_command == 'status':
                 result = queue_snapshot(root)
+            elif args.queue_command == 'events':
+                result = queue_events(root, args.limit)
+            elif args.queue_command == 'dashboard':
+                result = dashboard_export(root, args.html) if args.html else queue_dashboard(root)
             elif args.queue_command == 'watch':
                 for item in observe(root, args.seconds, args.interval):
                     print(json.dumps(item, ensure_ascii=False), flush=True)

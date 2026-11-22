@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "steps": [
+    {
+      "key": "contract",
+      "task": "Design a backwards-compatible API contract and document request and response schemas. Do not deploy.",
+      "profile": "full",
+      "priority": 50
+    },
+    {
+      "key": "backend",
+      "task": "Implement the API contract with authorization, negative tests, and migration safety checks.",
+      "profile": "full",
+      "priority": 30,
+      "after": ["contract"],
+      "gate": "verified"
+    },
+    {
+      "key": "frontend",
+      "task": "Implement the client against the reviewed API. Do not modify backend-owned files.",
+      "profile": "web",
+      "priority": 20,
+      "after": ["contract"],
+      "gate": "transferred"
+    },
+    {
+      "key": "security",
+      "task": "Review authentication, input boundaries, and release blockers. Report evidence without deploying.",
+      "profile": "security",
+      "priority": 10,
+      "after": ["backend", "frontend"],
+      "gate": "order"
+    }
+  ]
+}

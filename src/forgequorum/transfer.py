@@ -170,7 +170,7 @@ def transfer(target: Path, destination_id: str, source_id: str, apply: bool = Fa
     if (not ID.fullmatch(destination_id) or not ID.fullmatch(source_id)
             or source_id == destination_id):
         raise SwarmError("Specify two different, valid queue job IDs")
-    from .queue import _transaction, _write
+    from .queue import _transaction, _write, _event
 
     root, common = _repo(target)
     # Use the queue mutex for both check and application, so a queue dispatcher
@@ -210,6 +210,7 @@ def transfer(target: Path, destination_id: str, source_id: str, apply: bool = Fa
                                    "patch_sha256": _sha256(patch), "index_sha256": digest,
                                    "paths": paths, "sequence": len(evidence) + 1}
             entry["handoffs"] = evidence
+            _event(data, "transferred", destination_id)
             # If metadata cannot be persisted the staged changes are retained
             # for explicit operator inspection; do not reset arbitrary changes.
             _write(folder, data)
